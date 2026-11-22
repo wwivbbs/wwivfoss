@@ -14,13 +14,8 @@ jobs:
         with:
           version: "2.0"
 
-      - name: Build WWIVFOSS
-        working-directory: dos
-        run: wmake
-
-      - name: Build FOSTEST
-        working-directory: tools/fostest
-        run: wmake
+      - name: Build
+        run: scripts/build.sh
 
       - uses: actions/upload-artifact@v4
         with:

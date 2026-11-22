@@ -40,6 +40,7 @@
 
 #define IER_RDA   0x01
 #define IER_THRE  0x02
+#define IER_MSR   0x08
 #define IIR_NONE  0x01
 #define IIR_ID    0x06
 #define IIR_MSR   0x00
@@ -89,6 +90,19 @@ static volatile unsigned char tx_busy;  /* a THRE interrupt is expected */
 static volatile unsigned char remote_lines;  /* last line state from BBS */
 static unsigned char rx_escape;              /* saw FF, waiting for next */
 
+/*
+ * Modem status, cached so FOSSIL status (03h), which doors call in tight
+ * loops, needs no port I/O. Under software emulation (QEMU TCG) every port
+ * access is a VM exit that contends with the thread feeding socket data
+ * into the UART, so polling the MSR starved our own receive path. The ISR
+ * updates the cache on modem status interrupts, and it's re-read at most
+ * once per timer tick as a fallback.
+ */
+static volatile unsigned char msr_cache;
+static unsigned long msr_tick;
+static volatile unsigned long __far* const bios_ticks =
+    (volatile unsigned long __far*)0x0040006CL;
+
 static int uart_carrier(void);
 
 /* Move bytes from the TX ring into the UART. Interrupts must be off. */
@@ -104,7 +118,11 @@ static void tx_fill(void) {
 static void rx_drain(void) {
   unsigned next;
   unsigned char c;
-  while (inp(base + LSR) & LSR_DR) {
+  unsigned char lsr;
+  while ((lsr = (unsigned char)inp(base + LSR)) & LSR_DR) {
+    if (lsr & LSR_OE) {
+      rx_lost = 1;
+    }
     c = (unsigned char)inp(base + RBR);
     if (g_opts.inband) {
       if (rx_escape) {
@@ -145,10 +163,12 @@ static void __interrupt __far uart_isr(void) {
       tx_fill();
       break;
     case IIR_LSR:
-      (void)inp(base + LSR);
+      if (inp(base + LSR) & LSR_OE) {
+        rx_lost = 1;
+      }
       break;
     case IIR_MSR:
-      (void)inp(base + MSR);
+      msr_cache = (unsigned char)inp(base + MSR);
       break;
     }
   }
@@ -196,7 +216,9 @@ static int uart_open(void) {
   rx_drain();
   rx_head = rx_tail = 0;
   outp(base + MCR, MCR_DTR | MCR_RTS | MCR_OUT2);
-  outp(base + IER, IER_RDA | IER_THRE);
+  msr_cache = (unsigned char)inp(base + MSR);
+  msr_tick = *bios_ticks;
+  outp(base + IER, IER_RDA | IER_THRE | IER_MSR);
   _enable();
   return 1;
 }
@@ -290,11 +312,17 @@ static int uart_tx_put(unsigned char c) {
 }
 
 static int uart_tx_empty(void) {
-  return tx_head == tx_tail && (inp(base + LSR) & LSR_TEMT);
+  /* No port I/O: the ring is empty and the last THRE interrupt found
+     nothing more to send. */
+  return tx_head == tx_tail && !tx_busy;
 }
 
 static int uart_carrier(void) {
-  if (!(inp(base + MSR) & MSR_DCD)) {
+  if (*bios_ticks != msr_tick) {
+    msr_tick = *bios_ticks;
+    msr_cache = (unsigned char)inp(base + MSR);
+  }
+  if (!(msr_cache & MSR_DCD)) {
     return 0;
   }
   /* With -E the BBS reports a hangup as DTR low in the byte stream. */
@@ -302,7 +330,8 @@ static int uart_carrier(void) {
 }
 
 static int uart_overrun(void) {
-  int lost = rx_lost || (inp(base + LSR) & LSR_OE);
+  /* Overruns are recorded by the ISR (LSR OE) and the ring (full). */
+  int lost = rx_lost;
   rx_lost = 0;
   return lost;
 }

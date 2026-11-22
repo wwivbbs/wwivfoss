@@ -13,6 +13,7 @@
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
 #                     (qemu only: needs in-band framing to observe DTR)
+#             speed   32 KB each way through FOSSIL block I/O; prints KB/s
 #             funcs   FOSTEST self-tests: local functions, peek, purge,
 #                     all 256 byte values both ways, and (qemu) keyboard
 #             door:NAME  a real door from tests/doors/NAME.sh: expect its
@@ -22,6 +23,7 @@
 #                       again, which must find no FOSSIL
 #
 #   WWIVFOSS_DOORS=dir  where door tests find installed doors (/wwiv/doors)
+#   WWIVFOSS_FLAGS=...  extra WWIVFOSS options (e.g. -I0)
 #   KEEP=1     keep .devenv/test/ for inspection
 #   TIMEOUT=n  seconds per step (default 120)
 #
@@ -125,7 +127,7 @@ case "$scenario" in
     need_dosbox_for_prep=1
     want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
     ;;
-  echo|funcs) want_errorlevel=0 ;;
+  echo|funcs|speed) want_errorlevel=0 ;;
   hangup) want_errorlevel=2 ;;
   dtr) want_errorlevel=3 ;;
   *) echo "Unknown scenario: $scenario" >&2; exit 1 ;;
@@ -156,6 +158,8 @@ case "$emu" in
     ;;
   *) echo "Unknown emulator: $emu" >&2; exit 1 ;;
 esac
+# Extra WWIVFOSS options for experiments, e.g. WWIVFOSS_FLAGS=-I0.
+flags="$flags ${WWIVFOSS_FLAGS:-}"
 if [ -n "$door" ]; then
   need dosbox-x dosbox-x  # door_prepare runs setup steps in DOSBox-X
   # Prepare once into a cache; tests run on a fresh copy of it.
@@ -248,7 +252,10 @@ write_test_bat() {
       if [ "$mode" = resident ]; then
         echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
         echo "if errorlevel 1 goto loadfail"
-        echo "$DOOR_CMD"
+        case "$DOOR_CMD" in
+          *.BAT*|*.bat*) echo "call $DOOR_CMD" ;;  # else control never returns
+          *) echo "$DOOR_CMD" ;;
+        esac
       else
         echo "${d}\\WWIVFOSS.EXE $flags -S${d}\\STATS.TXT $DOOR_CMD"
       fi
@@ -297,7 +304,15 @@ write_test_bat() {
 # Start the BBS side first; the emulator connects to it, as with WWIV's
 # listen-socket exec mode.
 bbs_scenario="$scenario"
-[ -n "$door" ] && bbs_scenario=door
+[ -n "$door" ] && bbs_scenario="${DOOR_SCENARIO:-door}"
+# Zmodem doors: the host side's files (see door_prepare in tests/doors).
+export ZM_DIR="$work/zm"
+if [ "$bbs_scenario" = zmodem ]; then
+  mkdir -p "$ZM_DIR"
+  # 32 KB holding every byte value, in a scrambled but repeatable order.
+  python3 -c 'import random,sys; r=random.Random(1954); b=bytearray(range(256))*128; r.shuffle(b); sys.stdout.buffer.write(b)' \
+    > "$ZM_DIR/DOWN.BIN"
+fi
 export DOOR_EXPECT="${DOOR_EXPECT:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
 [ "$emu" = qemu ] && bbs_args+=("$monitor_port")

@@ -17,6 +17,8 @@
  *   X  purge: 0Ah drops pending input, 09h drops pending output
  *   B  binary: send bytes 00..FF with 19h, receive 00..FF with 18h
  *   K  keyboard: 0Dh peeks and 0Eh reads a key typed on the DOS console
+ *   R  receive speed: read 32 KB with 18h, report the time
+ *   T  transmit speed: write 32 KB with 19h, report the time
  *
  * Each test reports "<NAME> OK" or "<NAME> FAIL <detail>" to the caller and
  * to stdout. Exit codes: 0 quit, 1 no FOSSIL, 2 carrier lost, 3 hung up.
@@ -276,6 +278,60 @@ static void test_keyboard(void) {
   report("KEY", NULL);
 }
 
+#define SPEED_BYTES 32768UL
+
+/* R: receive SPEED_BYTES with block reads and report the time taken. */
+static void test_rx_speed(void) {
+  static unsigned char buf[1024];
+  unsigned long got = 0, start = 0;
+  unsigned long last = *bios_ticks;
+
+  send("\r\nRX READY\r\n");
+  while (got < SPEED_BYTES) {
+    segread(&sr);
+    r.h.ah = F_BLOCK_READ;
+    r.x.cx = sizeof(buf);
+    r.x.dx = port;
+    sr.es = FP_SEG((unsigned char __far*)buf);
+    r.x.di = FP_OFF((unsigned char __far*)buf);
+    int86x(0x14, &r, &r, &sr);
+    if (r.x.ax) {
+      if (!got) {
+        start = *bios_ticks;
+      }
+      got += r.x.ax;
+      last = *bios_ticks;
+    } else if (!carrier() || *bios_ticks - last > TIMEOUT_TICKS) {
+      sprintf(line, "received %lu of %lu", got, SPEED_BYTES);
+      report("RX", line);
+      return;
+    }
+  }
+  sprintf(line, "\r\nRX TICKS %lu\r\n", *bios_ticks - start);
+  send(line);
+  report("RX", NULL);
+}
+
+/* T: transmit SPEED_BYTES with block writes and report the time taken. */
+static void test_tx_speed(void) {
+  static unsigned char buf[1024];
+  unsigned long sent = 0, start;
+  memset(buf, 'T', sizeof(buf));
+  send("\r\nTX START\r\n");
+  start = *bios_ticks;
+  while (sent < SPEED_BYTES) {
+    if (!send_bytes(buf, sizeof(buf))) {
+      report("TX", "send failed");
+      return;
+    }
+    sent += sizeof(buf);
+  }
+  fossil(F_FLUSH_OUT, 0);
+  sprintf(line, "\r\nTX TICKS %lu\r\n", *bios_ticks - start);
+  send(line);
+  report("TX", NULL);
+}
+
 int main(int argc, char** argv) {
   static struct fossil_info info;
   unsigned st;
@@ -333,6 +389,8 @@ int main(int argc, char** argv) {
     case 'X': test_purge(); break;
     case 'B': test_binary(); break;
     case 'K': test_keyboard(); break;
+    case 'R': test_rx_speed(); break;
+    case 'T': test_tx_speed(); break;
     default:
       fossil(F_TX_WAIT, (unsigned char)ch);
       break;

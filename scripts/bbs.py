@@ -12,6 +12,10 @@ SCENARIO against FOSTEST:
     dtr     banner, echo, send H; the door lowers DTR and we must see it
     door    a real door: wait for $DOOR_EXPECT, then hang up (the test
             checks that the door notices and exits)
+    zmodem  round trip with a Zmodem program in DOS (FDSZ): lrzsz sends
+            $ZM_DIR/DOWN.BIN, DOS receives it and sends it back, and the
+            copy that returns must match byte for byte
+    speed   32 KB each way with FOSTEST R/T; prints the throughput
     funcs   FOSTEST's self-tests: F (local functions), P (peek), X (purge),
             B (all 256 byte values both ways), K (keyboard, only with a
             QEMU MONITOR_PORT to type the key), then Q
@@ -23,8 +27,12 @@ Exits 0 when the BBS side of the scenario completed.
 """
 import os
 import re
+import select
+import shutil
 import socket
+import subprocess
 import sys
+import threading
 import time
 
 ESC = 0xFF
@@ -46,9 +54,12 @@ class Door:
         self._escape = False
 
     def _feed(self, chunk):
+        self.data += self.decode(chunk)
+
+    def decode(self, chunk):
+        """Strips in-band line state from chunk; returns the payload."""
         if not inband:
-            self.data += chunk
-            return
+            return chunk
         out = bytearray()
         for b in chunk:
             if self._escape:
@@ -61,7 +72,7 @@ class Door:
                 self._escape = True
             else:
                 out.append(b)
-        self.data += bytes(out)
+        return bytes(out)
 
     def wait_for(self, done, what):
         while not done():
@@ -111,6 +122,52 @@ def qemu_sendkey(key):
         time.sleep(0.5)
 
 
+def zmodem(cmd, cwd):
+    """Runs an lrzsz command with its stdio connected to the door."""
+    log = open(os.path.join(cwd, f"{cmd[0]}.log"), "wb")
+    proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=log)
+
+    def to_door():
+        while True:
+            chunk = proc.stdout.read1(4096)
+            if not chunk:
+                return
+            door.send(chunk)
+
+    pump = threading.Thread(target=to_door, daemon=True)
+    pump.start()
+    first = None
+    while proc.poll() is None:
+        if time.monotonic() > deadline:
+            proc.kill()
+            fail(f"timed out during {' '.join(cmd)}")
+        ready, _, _ = select.select([door.conn], [], [], 0.2)
+        if not ready:
+            continue
+        chunk = door.conn.recv(4096)
+        if not chunk:
+            proc.kill()
+            fail(f"connection closed during {' '.join(cmd)}")
+        if first is None:
+            first = time.monotonic()
+        try:
+            proc.stdin.write(door.decode(chunk))
+            proc.stdin.flush()
+        except BrokenPipeError:
+            break
+    pump.join(5)
+    return proc.wait(), first
+
+
+def lrzsz(name):
+    """lrzsz installs as sz/rz on Debian and lsz/lrz on some systems."""
+    for candidate in (name, "l" + name):
+        if shutil.which(candidate):
+            return candidate
+    fail(f"{name} not found: sudo apt-get install -y lrzsz")
+
+
 def fail(msg):
     shown = door.data.decode("cp437").replace("\r", "") if door else ""
     sys.exit(f"FAIL: {msg}\n--- received from DOS ---\n{shown}\n"
@@ -130,6 +187,36 @@ except socket.timeout:
     fail("the emulator never connected")
 conn.settimeout(1)
 door = Door(conn)
+
+if scenario == "zmodem":
+    zm = os.environ["ZM_DIR"]
+    original = open(os.path.join(zm, "DOWN.BIN"), "rb").read()
+    back = os.path.join(zm, "back")
+    os.makedirs(back, exist_ok=True)
+
+    # Time each transfer from the first byte FDSZ sends, so emulator boot
+    # time doesn't count.
+    rc, t0 = zmodem([lrzsz("sz"), "-b", "DOWN.BIN"], zm)
+    if rc != 0:
+        fail(f"sz exited {rc}; see {zm}/sz.log")
+    t1 = time.monotonic()
+    print(f"ok - sent {len(original)} bytes to FDSZ in {t1 - t0:.1f}s "
+          f"({len(original) / (t1 - t0) / 1024:.1f} KB/s)")
+
+    rc, _ = zmodem([lrzsz("rz"), "-b", "-y"], back)
+    if rc != 0:
+        fail(f"rz exited {rc}; see {back}/rz.log")
+    t2 = time.monotonic()
+    path = os.path.join(back, "DOWN.BIN")
+    if not os.path.exists(path):
+        path = os.path.join(back, "down.bin")
+    got = open(path, "rb").read() if os.path.exists(path) else b""
+    if got != original:
+        fail(f"round trip mismatch: sent {len(original)} bytes, got back {len(got)}")
+    print(f"ok - received it back intact in {t2 - t1:.1f}s "
+          f"({len(got) / (t2 - t1) / 1024:.1f} KB/s)")
+    time.sleep(1)
+    sys.exit(0)
 
 if scenario == "door":
     door.expect(os.environ["DOOR_EXPECT"])
@@ -163,6 +250,25 @@ elif scenario == "dtr":
     door.wait_for(lambda: not door.lines & LINE_DTR, "DTR to drop")
     print("ok - door lowered DTR (seen in-band)")
     conn.close()
+elif scenario == "speed":
+    door.send(b"R")
+    door.expect("RX READY")
+    t0 = time.monotonic()
+    door.send(bytes(range(256)) * 128)
+    door.expect_ok("RX")
+    t1 = time.monotonic()
+    ticks = re.search(rb"RX TICKS (\d+)", door.data)
+    print(f"ok - door received 32 KB in {t1 - t0:.1f}s "
+          f"({32 / (t1 - t0):.1f} KB/s; {ticks.group(1).decode() if ticks else '?'} DOS ticks)")
+    door.send(b"T")
+    door.expect("TX START")
+    t0 = time.monotonic()
+    door.expect_ok("TX")
+    t1 = time.monotonic()
+    print(f"ok - door sent 32 KB in {t1 - t0:.1f}s ({32 / (t1 - t0):.1f} KB/s)")
+    door.send(b"Q")
+    door.expect("BYE")
+    time.sleep(1)
 elif scenario == "funcs":
     door.send(b"F")
     door.expect_ok("FUNCS")

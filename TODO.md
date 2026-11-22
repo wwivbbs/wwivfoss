@@ -18,9 +18,17 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       position, not a port) didn't match our port.
 - [x] **8-bit clean test**: `B` sends 00–FF with 19h and receives 00–FF
       with 18h, raw (DOSBox-X) and with `-E` FF escaping (QEMU).
-- [ ] **File transfer test**: a real Zmodem transfer through the FOSSIL,
-      under both emulators: FDSZ (the FOSSIL build of DSZ, `fdsz0597.zip`
-      in the archive) on the DOS side, lrzsz on the BBS side.
+- [x] **File transfer test**: `tests/doors/fdsz.sh` round-trips a 32 KB
+      file holding every byte value through FDSZ (the FOSSIL build of DSZ)
+      with lrzsz on the BBS side; passes under both emulators and modes.
+- [ ] **FDSZ receive speed under QEMU**: BBS→DOS runs at ~1.4 KB/s under
+      QEMU (TCG on arm64) vs ~33 KB/s DOS→BBS and ~6 KB/s both ways under
+      DOSBox-X. Raw FOSSIL block reads under QEMU do 278 KB/s
+      (`scripts/test.sh qemu speed`), so the driver's receive path is fine;
+      the cost is FDSZ's byte-at-a-time 03h/02h loop (~20,000 waits on an
+      empty buffer per 32 KB) against QEMU's slow refill of its UART FIFO.
+      Halting or spinning while waiting doesn't change it. Next: try QEMU
+      with KVM on an x86 host, and other FOSSIL Zmodems (GSZ, CEXYZ).
 - [ ] **Real doors**: `scripts/test.sh doors` runs every door defined in
       `tests/doors/` that's installed locally (`WWIVFOSS_DOORS`, default
       `/wwiv/doors`): prepare a cached copy, expect its banner, hang up, and

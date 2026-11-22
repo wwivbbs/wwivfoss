@@ -52,6 +52,17 @@
 #define WWIVFOSS_API_MAGIC         0x5746
 #define WWIVFOSS_API_QUERY         0x00
 #define WWIVFOSS_API_SHUTDOWN      0x01
+#define WWIVFOSS_API_STATS         0x02
+
+/*
+ *   AL = 02h  statistics: returns AX = 5746h, ES:BX -> struct
+ *             wwivfoss_stats (counts of FOSSIL calls handled since load)
+ */
+#define WWIVFOSS_STATS_FUNCS       0x20
+struct wwivfoss_stats {
+  unsigned long  total;                        /* all handled calls */
+  unsigned short by_func[WWIVFOSS_STATS_FUNCS]; /* per AH, saturating */
+};
 
 /*
  * Named pipe names used by the OS/2 pipe transport (planned). These match

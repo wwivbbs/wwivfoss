@@ -38,8 +38,11 @@ static volatile int in_handler;
 static unsigned empty_polls;
 static char ident[] = "WWIVFOSS " WWIVFOSS_VERSION " (https://github.com/wwivbbs)";
 static struct fossil_info info;
+static struct wwivfoss_stats stats;
 
 const char* fossil_ident(void) { return ident; }
+
+const struct wwivfoss_stats* fossil_stats(void) { return &stats; }
 
 unsigned fossil_entry_segment(void) {
   return FP_SEG((void __far*)int14_entry);
@@ -220,6 +223,10 @@ void __interrupt __far int14_handler(union INTPACK r) {
       r.w.bx = _psp;
       r.w.cx = fossil_entry_segment();
       r.w.dx = g_transport->irq_vector();
+    } else if (r.h.al == WWIVFOSS_API_STATS) {
+      r.w.ax = WWIVFOSS_API_MAGIC;
+      r.w.es = FP_SEG((struct wwivfoss_stats __far*)&stats);
+      r.w.bx = FP_OFF((struct wwivfoss_stats __far*)&stats);
     } else if (r.h.al == WWIVFOSS_API_SHUTDOWN && !in_handler) {
       _enable();
       g_transport->close();
@@ -233,6 +240,10 @@ void __interrupt __far int14_handler(union INTPACK r) {
     _chain_intr(old_int14);
   }
   in_handler = 1;
+  ++stats.total;
+  if (fn < WWIVFOSS_STATS_FUNCS && stats.by_func[fn] != 0xFFFF) {
+    ++stats.by_func[fn];
+  }
   /* Let the UART IRQ run while we wait inside blocking functions. */
   _enable();
 

@@ -32,7 +32,7 @@
 #define EXIT_HOOKED     6   /* -U: another program hooked our vectors */
 #define EXIT_FREE       7   /* -U: couldn't free the resident memory */
 
-struct options g_opts = {1, 'U', 0, 0, 1, 0};
+struct options g_opts = {1, 'U', 0, 0, 1, 0, NULL};
 const struct transport* g_transport;
 
 static void usage(void) {
@@ -47,6 +47,8 @@ static void usage(void) {
     "  -E    In-band line control (carrier/DTR in the byte stream;\r\n"
     "        needed for QEMU, see foss_protocol.h)\r\n"
     "  -C    Force carrier detect on\r\n"
+    "  -Sfile Write FOSSIL call counts to file when the door exits\r\n"
+    "        (runner) or on -U (resident)\r\n"
     "  -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe\r\n"
     "  -N#   Node number (vdd and pipe transports)\r\n"
     "  -I0   Don't release timeslices while doors poll\r\n"
@@ -84,6 +86,27 @@ static int resident_api(unsigned char subfn, union REGS* out) {
   r.x.bx = WWIVFOSS_API_MAGIC;
   int86(0x14, &r, out);
   return out->x.ax == WWIVFOSS_API_MAGIC;
+}
+
+/* Writes FOSSIL call counts to g_opts.stats_file (if set). */
+static void write_stats(const struct wwivfoss_stats __far* st) {
+  FILE* f;
+  unsigned i;
+  if (!g_opts.stats_file || !*g_opts.stats_file) {
+    return;
+  }
+  f = fopen(g_opts.stats_file, "w");
+  if (!f) {
+    fprintf(stderr, "Can't write %s\r\n", g_opts.stats_file);
+    return;
+  }
+  fprintf(f, "total %lu\n", st->total);
+  for (i = 0; i < WWIVFOSS_STATS_FUNCS; i++) {
+    if (st->by_func[i]) {
+      fprintf(f, "%02X %u\n", i, st->by_func[i]);
+    }
+  }
+  fclose(f);
 }
 
 static int open_transport(void) {
@@ -136,6 +159,7 @@ static int run_door(char** argv, int first, const char* command) {
   }
   fossil_remove();
   g_transport->close();
+  write_stats(fossil_stats());
 
   if (rc == -1) {
     perror("WWIVFOSS: unable to run command");
@@ -201,6 +225,20 @@ static int unload_resident(void) {
     }
   }
 
+  {
+    union REGS sr_in;
+    struct SREGS sregs;
+    memset(&sr_in, 0, sizeof(sr_in));
+    sr_in.h.ah = WWIVFOSS_API_FUNC;
+    sr_in.h.al = WWIVFOSS_API_STATS;
+    sr_in.x.bx = WWIVFOSS_API_MAGIC;
+    segread(&sregs);
+    int86x(0x14, &sr_in, &r, &sregs);
+    if (r.x.ax == WWIVFOSS_API_MAGIC) {
+      write_stats((const struct wwivfoss_stats __far*)MK_FP(sregs.es, r.x.bx));
+    }
+  }
+
   resident_api(WWIVFOSS_API_SHUTDOWN, &r);
 
   /*
@@ -254,6 +292,7 @@ int main(int argc, char** argv) {
       case 'P': g_opts.port = atoi(val); break;
       case 'E': g_opts.inband = 1; break;
       case 'C': g_opts.force_carrier = 1; break;
+      case 'S': g_opts.stats_file = val; break;
       case 'T': g_opts.transport = *val; break;
       case 'N': g_opts.node = atoi(val); break;
       case 'I': g_opts.idle = (*val != '0'); break;

@@ -64,8 +64,9 @@ if [ "$emu" = doors ]; then
   failed=""
   for def in "$root"/tests/doors/*.sh; do
     name="$(basename "$def" .sh)"
-    src="$(DOOR_SRC=; . "$def"; echo "$DOOR_SRC")"
-    if [ ! -d "$src" ]; then
+    src="$(DOOR_SRC=; DOOR_URL=; . "$def"
+           if [ -n "$DOOR_URL" ] || [ -d "$DOOR_SRC" ]; then echo ok; else echo "$DOOR_SRC"; fi)"
+    if [ "$src" != ok ]; then
       echo "=== door:$name: skipped ($src not found)"
       continue
     fi
@@ -94,6 +95,22 @@ dos_run() {
   rm -f "$conf"
 }
 
+# Drop files for door_prepare. The caller is Rush Fan on COM1 at 19200.
+
+# DORINFO1.DEF (RBBS/QuickBBS; OpenDoors, DoorDriver and most others).
+write_dorinfo() {
+  printf '%s\r\n' "WWIVFOSS TEST BBS" "THE" "SYSOP" "COM1" "19200 BAUD,N,8,1" "0" \
+    "RUSH" "FAN" "TESTVILLE" "1" "100" "60" > "$1/DORINFO1.DEF"
+}
+
+# CHAIN.TXT in WWIV's field order (bbs/dropfile.cpp create_chain_file).
+write_chain() {
+  printf '%s\r\n' "1" "RUSH FAN" "Rush Fan" "" "30" "M" "      0.00" "11/22/26" \
+    "80" "25" "100" "0" "0" "1" "1" "   3600.00" "C:\\WWIV\\GFILES\\" \
+    "C:\\WWIV\\DATA\\" "NODE1.LOG" "19200" "1" "WWIVFOSS Test BBS" "The Sysop" \
+    "43200" "10" "0" "0" "0" "0" "8N1" "19200" "1" "N" "N" "N" "0" "0" > "$1/CHAIN.TXT"
+}
+
 door=""
 case "$scenario" in
   door:*)
@@ -102,7 +119,9 @@ case "$scenario" in
     [ -f "$def" ] || { echo "No door definition: $def" >&2; exit 1; }
     DOOR_HANGUP_ERRORLEVEL=any
     . "$def"
-    [ -d "$DOOR_SRC" ] || { echo "Door not installed: $DOOR_SRC" >&2; exit 1; }
+    if [ -z "${DOOR_URL:-}" ] && [ ! -d "$DOOR_SRC" ]; then
+      echo "Door not installed: $DOOR_SRC" >&2; exit 1
+    fi
     need_dosbox_for_prep=1
     want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
     ;;
@@ -144,7 +163,16 @@ if [ -n "$door" ]; then
   if [ ! -f "$cache/.prepared" ]; then
     rm -rf "$cache"
     mkdir -p "$cache"
-    cp -r "$DOOR_SRC"/. "$cache"/
+    if [ -n "${DOOR_URL:-}" ]; then
+      zip="$dev/downloads/archive/$(basename "$DOOR_URL")"
+      if [ ! -s "$zip" ]; then
+        mkdir -p "$(dirname "$zip")"
+        curl -fsSL --retry 3 -o "$zip.part" "$DOOR_URL" && mv "$zip.part" "$zip"
+      fi
+      unzip -q -o "$zip" -d "$cache"
+    else
+      cp -r "$DOOR_SRC"/. "$cache"/
+    fi
     door_prepare "$cache" || { echo "Preparing door $door failed" >&2; exit 1; }
     touch "$cache/.prepared"
   fi
@@ -196,7 +224,7 @@ fail() {
 # them straight to $work).
 fetch_results() {
   if [ "$emu" = qemu ] && [ -n "${img:-}" ]; then
-    for f in LOG.TXT RESULT.TXT UNLOAD.TXT AFTER.TXT LOADLOG.TXT UNLOG.TXT; do
+    for f in LOG.TXT RESULT.TXT UNLOAD.TXT AFTER.TXT LOADLOG.TXT UNLOG.TXT STATS.TXT; do
       mcopy -o -i "$img" "::/$f" "$work/" 2>/dev/null || true
     done
   fi
@@ -222,14 +250,14 @@ write_test_bat() {
         echo "if errorlevel 1 goto loadfail"
         echo "$DOOR_CMD"
       else
-        echo "${d}\\WWIVFOSS.EXE $flags $DOOR_CMD"
+        echo "${d}\\WWIVFOSS.EXE $flags -S${d}\\STATS.TXT $DOOR_CMD"
       fi
     elif [ "$mode" = resident ]; then
       echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
       echo "if errorlevel 1 goto loadfail"
       echo "${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
     else
-      echo "${d}\\WWIVFOSS.EXE $flags ${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
+      echo "${d}\\WWIVFOSS.EXE $flags -S${d}\\STATS.TXT ${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
     fi
     for n in 3 2 1; do
       echo "if errorlevel $n goto e$n"
@@ -241,7 +269,7 @@ write_test_bat() {
     done
     echo ":after"
     if [ "$mode" = resident ]; then
-      echo "${d}\\WWIVFOSS.EXE -U > ${d}\\UNLOG.TXT"
+      echo "${d}\\WWIVFOSS.EXE -U -S${d}\\STATS.TXT > ${d}\\UNLOG.TXT"
       echo "if errorlevel 1 goto unloadfail"
       # With the FOSSIL gone, FOSTEST must exit 1 ("no FOSSIL").
       echo "${d}\\FOSTEST.EXE > ${d}\\AFTER.TXT"
@@ -315,14 +343,19 @@ case "$emu" in
     ;;
   dosbox)
     cp "$root/dos/wwivfoss.exe" "$root/tools/fostest/fostest.exe" "$work/"
-    door_drive=D:
-    door_mount=""
+    # Door files on C: as under QEMU, so paths in door configs match; the
+    # test files and results then live on E:.
+    door_drive=C:
+    rd=C:
+    mounts="mount c \"$work\""
     if [ -n "$door" ]; then
       mkdir -p "$work/d"
       cp -r "$cache"/. "$work/d"/
-      door_mount="mount d \"$work/d\""
+      rd=E:
+      mounts="mount c \"$work/d\"
+mount e \"$work\""
     fi
-    write_test_bat "C:" 0
+    write_test_bat "$rd" 0
     cat > "$work/dosbox.conf" <<EOF
 [dosbox]
 quit warning = false
@@ -334,10 +367,9 @@ cycles = max
 serial1 = nullmodem server:127.0.0.1 port:$port transparent:1
 
 [autoexec]
-mount c "$work"
-$door_mount
-c:
-call C:\\TEST.BAT
+$mounts
+$rd
+call $rd\\TEST.BAT
 exit
 EOF
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
@@ -375,6 +407,14 @@ if [ "$want_errorlevel" != any ] && [ "$errorlevel" != "$want_errorlevel" ]; the
   fail "errorlevel $errorlevel, wanted $want_errorlevel"
 fi
 echo "ok - door exited with errorlevel $errorlevel"
+# Prove the door went through WWIVFOSS, not its own UART code.
+[ -f "$work/STATS.TXT" ] || fail "no STATS.TXT from WWIVFOSS -S"
+calls="$(awk '$1 == "total" {print $2}' "$work/STATS.TXT")"
+tx="$(awk '$1 == "01" || $1 == "0B" || $1 == "19" {n += $2} END {print n + 0}' "$work/STATS.TXT")"
+if [ "${tx:-0}" -eq 0 ]; then
+  fail "WWIVFOSS handled no transmit calls ($calls calls total): door bypassed the FOSSIL?"
+fi
+echo "ok - $calls FOSSIL calls, $tx of them transmit"
 if [ "$mode" = resident ]; then
   echo "ok - WWIVFOSS -U unloaded; FOSTEST then found no FOSSIL"
 fi

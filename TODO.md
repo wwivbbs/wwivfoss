@@ -18,17 +18,22 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       position, not a port) didn't match our port.
 - [x] **8-bit clean test**: `B` sends 00–FF with 19h and receives 00–FF
       with 18h, raw (DOSBox-X) and with `-E` FF escaping (QEMU).
-- [ ] **File transfer test**: a real Zmodem transfer (e.g. DSZ) through the
-      FOSSIL, under both emulators.
+- [ ] **File transfer test**: a real Zmodem transfer through the FOSSIL,
+      under both emulators: FDSZ (the FOSSIL build of DSZ, `fdsz0597.zip`
+      in the archive) on the DOS side, lrzsz on the BBS side.
 - [ ] **Real doors**: `scripts/test.sh doors` runs every door defined in
       `tests/doors/` that's installed locally (`WWIVFOSS_DOORS`, default
       `/wwiv/doors`): prepare a cached copy, expect its banner, hang up, and
       check the door notices and exits, under both emulators in runner and
       resident mode.
-  - [x] Global War 2.7 (`tests/doors/gw.sh`): all 4 pass.
+  - [x] Global War 2.7 (`gw.sh`, from the local install).
+  - [x] LORD 4.06 (`lord.sh`), VOTEDOS from OpenDoors 6.00 (`votedos.sh`),
+        Jungle from DoorDriver 5.00 (`jungle.sh`): downloaded from the
+        archive at https://mirrors.archeobits.com/bbs/archives.thebbs.org/.
+        All doors pass under both emulators in both modes, and `-S` call
+        counts prove each one used the FOSSIL rather than its own UART code.
   - [ ] Editors: TIDE, OEdit, WWIVEdit (need WWIV editor drop files).
-  - [ ] From the archives: an OpenDoors door, LORD, TW2002, and DSZ for the
-        Zmodem test (https://mirrors.archeobits.com/bbs/archives.thebbs.org/).
+  - [ ] TW2002 1.03 (archive has it; v2 isn't there).
 
 ## Emulator setup
 

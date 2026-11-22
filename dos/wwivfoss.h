@@ -16,6 +16,7 @@ struct options {
   int  force_carrier;  /* report DCD even when the line is down */
   int  idle;           /* release timeslices while doors poll */
   int  inband;         /* -E: line state travels in the byte stream */
+  const char* stats_file;  /* -S: write FOSSIL call counts here */
 };
 
 extern struct options g_opts;
@@ -56,5 +57,7 @@ void fossil_install(void);
 void fossil_remove(void);
 const char* fossil_ident(void);
 unsigned fossil_entry_segment(void);
+struct wwivfoss_stats;
+const struct wwivfoss_stats* fossil_stats(void);
 
 #endif /* WWIVFOSS_WWIVFOSS_H */

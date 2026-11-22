@@ -3,8 +3,17 @@
 # connected to a TCP socket, with scripts/bbs.py playing the BBS.
 #
 #   scripts/test.sh [EMULATOR] [SCENARIO] [MODE]
-#   scripts/test.sh all      FOSTEST matrix (what CI runs)
-#   scripts/test.sh doors    every door in tests/doors/ found locally
+#   scripts/test.sh all      FOSTEST matrix, 14 runs (what CI runs)
+#   scripts/test.sh doors    every door in tests/doors/, both emulators and
+#                            both modes (local only; not run in CI)
+#   scripts/test.sh --help   this help
+#
+# Examples:
+#   scripts/test.sh                           qemu, echo, runner
+#   scripts/test.sh dosbox hangup resident
+#   scripts/test.sh qemu speed                throughput, prints KB/s
+#   scripts/test.sh dosbox door:lord          one door
+#   KEEP=1 scripts/test.sh qemu funcs         keep .devenv/test/ afterwards
 #
 #   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -E (in-band line control,
 #                     QEMU doesn't drop DCD when the socket closes)
@@ -22,14 +31,34 @@
 #             resident  WWIVFOSS -L, FOSTEST, WWIVFOSS -U, then FOSTEST
 #                       again, which must find no FOSSIL
 #
-#   WWIVFOSS_DOORS=dir  where door tests find installed doors (/wwiv/doors)
+# Environment:
+#   WWIVFOSS_DOORS=dir  where door tests find installed doors (/wwiv/doors);
+#                       other doors are downloaded from a BBS archive mirror
 #   WWIVFOSS_FLAGS=...  extra WWIVFOSS options (e.g. -I0)
 #   KEEP=1     keep .devenv/test/ for inspection
 #   TIMEOUT=n  seconds per step (default 120)
 #
-# Needs: scripts/setup-dev.sh, scripts/build.sh, python3, and qemu-system-i386 +
-# mtools (qemu) or dosbox-x (dosbox).
+# Needs scripts/setup-dev.sh and scripts/build.sh first, plus:
+#   python3; qemu-system-x86 + mtools (qemu); dosbox-x (dosbox, and door
+#   setup for both); lrzsz (door:fdsz). On Debian/Ubuntu:
+#   sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3 lrzsz
+#
+# On failure the door's console log, results and (qemu) a screenshot are
+# printed or saved under .devenv/test/.
 set -euo pipefail
+
+case "${1:-}" in
+  -h|--help)
+    # Print the header comment above as help, then the defined doors.
+    awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+    echo
+    echo "Doors defined in tests/doors/:"
+    for def in "$(dirname "$0")"/../tests/doors/*.sh; do
+      printf '  door:%-10s %s\n' "$(basename "$def" .sh)" "$(sed -n '1s/^# *//p' "$def")"
+    done
+    exit 0
+    ;;
+esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dev="$root/.devenv"
@@ -130,11 +159,11 @@ case "$scenario" in
   echo|funcs|speed) want_errorlevel=0 ;;
   hangup) want_errorlevel=2 ;;
   dtr) want_errorlevel=3 ;;
-  *) echo "Unknown scenario: $scenario" >&2; exit 1 ;;
+  *) echo "Unknown scenario: $scenario (see $0 --help)" >&2; exit 1 ;;
 esac
 case "$mode" in
   runner|resident) ;;
-  *) echo "Unknown mode: $mode" >&2; exit 1 ;;
+  *) echo "Unknown mode: $mode (see $0 --help)" >&2; exit 1 ;;
 esac
 
 need() {
@@ -156,7 +185,7 @@ case "$emu" in
     flags="-P1"
     [ "$scenario" != dtr ] || { echo "dtr needs in-band framing (qemu)" >&2; exit 1; }
     ;;
-  *) echo "Unknown emulator: $emu" >&2; exit 1 ;;
+  *) echo "Unknown emulator: $emu (see $0 --help)" >&2; exit 1 ;;
 esac
 # Extra WWIVFOSS options for experiments, e.g. WWIVFOSS_FLAGS=-I0.
 flags="$flags ${WWIVFOSS_FLAGS:-}"

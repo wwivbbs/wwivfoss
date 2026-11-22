@@ -1,5 +1,7 @@
-# Global War v2.7 (John Dailey), a FOSSIL/UART door that reads WWIV's
-# CHAIN.TXT or takes the caller on the command line (/C).
+# Global War 2.7 (John Dailey), from a local install.
+#
+# A FOSSIL/UART door that reads WWIV's CHAIN.TXT or takes the caller on the
+# command line (/C).
 #
 # Sourced by scripts/test.sh. Point WWIVFOSS_DOORS at a directory holding
 # gw/ as shipped (gw.exe is a self-extracting ARJ archive; default

@@ -1,13 +1,26 @@
 #!/bin/sh
-# Download the local development environment into .devenv/ (gitignored):
+# Download the local development environment into .devenv/ (gitignored).
+#
+#   scripts/setup-dev.sh          fetch Open Watcom and FreeDOS (once)
+#   SKIP_OW=1 scripts/setup-dev.sh   FreeDOS only (CI gets Open Watcom from
+#                                    the setup-watcom action)
+#   scripts/setup-dev.sh --help   this help
 #
 #   .devenv/ow2/       Open Watcom v2 snapshot (Linux x64 host tools; on an
 #                      arm64 Linux host this needs Rosetta or qemu-user binfmt)
 #   .devenv/freedos/   FreeDOS 1.4 boot floppy, used by scripts/test.sh
 #
-# Also needed from the system: qemu-system-i386 and mtools
-#   sudo apt-get install -y qemu-system-x86 mtools
+# Also needed from the system for testing (see scripts/test.sh --help):
+#   sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3 lrzsz
 set -eu
+
+case "${1:-}" in
+  -h|--help)
+    # Print the header comment above as help.
+    awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+    exit 0
+    ;;
+esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dev="$root/.devenv"

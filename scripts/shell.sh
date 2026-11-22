@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Interactive FreeDOS shell in QEMU, with the latest WWIVFOSS build on A:.
 #
-#   scripts/shell.sh
+#   scripts/shell.sh          boot to an A:\> prompt
+#   scripts/shell.sh --help   this help
 #
 # Environment:
 #   DISPLAY_MODE  QEMU display (default: curses, runs in this terminal;
@@ -17,6 +18,14 @@
 # The floppy image lives at .devenv/shell.img; the binaries in it are
 # refreshed from the build on every start.
 set -euo pipefail
+
+case "${1:-}" in
+  -h|--help)
+    # Print the header comment above as help.
+    awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+    exit 0
+    ;;
+esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dev="$root/.devenv"

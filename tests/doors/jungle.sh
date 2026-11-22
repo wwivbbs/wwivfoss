@@ -1,5 +1,6 @@
-# JUNGLE, an example door from DoorDriver 5.00 (Scott Baker's Turbo Pascal
-# door kit). DoorDriver uses a FOSSIL when one is loaded.
+# JUNGLE, an example door from DoorDriver 5.00 (Turbo Pascal door kit).
+#
+# By Scott Baker. DoorDriver uses a FOSSIL when one is loaded.
 # Sourced by scripts/test.sh.
 
 DOOR_URL="https://mirrors.archeobits.com/bbs/archives.thebbs.org/files/door_developer_kits/doordr50.zip"

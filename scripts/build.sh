@@ -2,9 +2,20 @@
 # Build WWIVFOSS.EXE and FOSTEST.EXE with the Open Watcom from .devenv/
 # (run scripts/setup-dev.sh first), or with one already on PATH/WATCOM.
 #
-#   scripts/build.sh          build
-#   scripts/build.sh clean    clean
+#   scripts/build.sh          build WWIVFOSS.EXE and FOSTEST.EXE
+#   scripts/build.sh clean    remove build outputs
+#   scripts/build.sh --help   this help
+#
+# Outputs: dos/wwivfoss.exe (+ .map), tools/fostest/fostest.exe
 set -eu
+
+case "${1:-}" in
+  -h|--help)
+    # Print the header comment above as help.
+    awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+    exit 0
+    ;;
+esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -x "$root/.devenv/ow2/binl64/wcc" ]; then

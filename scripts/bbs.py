@@ -23,7 +23,8 @@ SCENARIO against FOSTEST:
 FRAMING is "raw" (carrier is the TCP connection itself, as with DOSBox-X) or
 "inband" (WWIVFOSS -E: FF escapes carry line state; see foss_protocol.h).
 
-Exits 0 when the BBS side of the scenario completed.
+Exits 0 when the BBS side of the scenario completed. Normally run by
+scripts/test.sh, not by hand.
 """
 import os
 import re
@@ -37,6 +38,10 @@ import time
 
 ESC = 0xFF
 LINE_RTS, LINE_DTR = 0x01, 0x02
+
+if len(sys.argv) < 6 or sys.argv[1] in ("-h", "--help"):
+    print(__doc__.strip())
+    sys.exit(0 if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help") else 2)
 
 port, scenario, framing, timeout, ready_file = sys.argv[1:6]
 monitor_port = int(sys.argv[6]) if len(sys.argv) > 6 else None

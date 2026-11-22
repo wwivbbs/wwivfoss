@@ -1,4 +1,6 @@
-# FDSZ, the FOSSIL build of Omen Technology's DSZ (Zmodem), 05-97.
+# Zmodem round trip with FDSZ, the FOSSIL build of DSZ (needs lrzsz).
+#
+# FDSZ is Omen Technology's DSZ for FOSSIL drivers, 05-97.
 # Round trip: the BBS (lrzsz) sends a file, FDSZ receives it and sends it
 # back; it must come back identical. Uses only FOSSIL functions 00h-03h.
 # Sourced by scripts/test.sh.

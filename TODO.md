@@ -43,6 +43,26 @@ runner and resident × echo/hangup/dtr) that runs in CI.
   - [ ] Editors: TIDE, OEdit, WWIVEdit (need WWIV editor drop files).
   - [ ] TW2002 1.03 (archive has it; v2 isn't there).
 
+## WWIV end-to-end (in progress)
+
+- [x] `configs/wwiv/dosdoor.sh`: runs a DOS door in DOSBox-X with WWIVFOSS
+      from a WWIV `SOCK_PORT` chain; converts WWIV's LF drop files to CR LF;
+      `DOSDOOR_LOG` for troubleshooting.
+- [x] `scripts/wwivsess.py`: scripted telnet session against a local WWIV
+      without wwivd. LORD plays end to end through WWIV on Linux.
+- [x] Fixed: transmitter stall when a byte arrives as a door starts (lost
+      THRE interrupt under DOSBox-X; flush waited forever on tx_busy).
+- [ ] Run door tests through `dosdoor.sh` itself, so they match what WWIV
+      runs; `lord-stray` doesn't reproduce the stall in the current
+      harness layout.
+- [ ] `-I0` (no idling) still stalls with a stray byte at door start (RX
+      overrun logged by DOSBox-X).
+- [ ] Sysop guide (`docs/wwiv.md`): chain settings, `dosdoor.sh`, per-door
+      setup (drop file on T:, FOSSIL on), troubleshooting.
+- WWIV issues filed: wwivbbs/wwiv#1735 (doors SIGKILLed on hangup), #1736
+  (bridge latency/throughput), #1737 (leftover input forwarded to doors),
+  #1738 (LF drop files on Linux).
+
 ## Emulator setup
 
 - [ ] **Fix `configs/` templates** to match what `scripts/test.sh` runs: the

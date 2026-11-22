@@ -343,6 +343,8 @@ if [ "$bbs_scenario" = zmodem ]; then
     > "$ZM_DIR/DOWN.BIN"
 fi
 export DOOR_EXPECT="${DOOR_EXPECT:-}"
+export DOOR_STRAY="${DOOR_STRAY:-}"
+export DOOR_MIN_BYTES="${DOOR_MIN_BYTES:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
 [ "$emu" = qemu ] && bbs_args+=("$monitor_port")
 python3 "$root/scripts/bbs.py" "${bbs_args[@]}" &

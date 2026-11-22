@@ -172,6 +172,15 @@ static void __interrupt __far uart_isr(void) {
       break;
     }
   }
+  /*
+   * Self-heal a lost THRE interrupt. Some UART emulations (seen with
+   * DOSBox-X when a byte arrives while we transmit) clear a pending THRE
+   * when IIR reports a higher-priority receive interrupt; without this the
+   * transmitter stalls with bytes queued.
+   */
+  if (tx_busy && (inp(base + LSR) & LSR_THRE)) {
+    tx_fill();  /* sends more, or clears tx_busy if the ring is empty */
+  }
   outp(PIC1_CMD, PIC_EOI);
 }
 
@@ -290,7 +299,9 @@ static void tx_push(unsigned char c) {
 
 /* Start the transmitter if it's idle; THRE interrupts do the rest. */
 static void tx_kick(void) {
-  if (!tx_busy && (inp(base + LSR) & LSR_THRE)) {
+  /* Don't trust tx_busy alone: if a THRE interrupt was lost, the UART sits
+     idle while tx_busy stays set and the ring never drains. */
+  if (inp(base + LSR) & LSR_THRE) {
     tx_fill();
   }
 }
@@ -299,7 +310,14 @@ static int uart_tx_put(unsigned char c) {
   /* With -E a literal FF goes out doubled, so it needs two slots. */
   unsigned need = (g_opts.inband && c == WWIVFOSS_INBAND_ESCAPE) ? 2 : 1;
   if (uart_tx_free() < need) {
-    return 0;
+    /* Full: make sure the transmitter is running (a lost THRE interrupt
+       would otherwise leave a door spinning here forever). */
+    _disable();
+    tx_kick();
+    _enable();
+    if (uart_tx_free() < need) {
+      return 0;
+    }
   }
   _disable();
   tx_push(c);
@@ -312,9 +330,22 @@ static int uart_tx_put(unsigned char c) {
 }
 
 static int uart_tx_empty(void) {
-  /* No port I/O: the ring is empty and the last THRE interrupt found
-     nothing more to send. */
-  return tx_head == tx_tail && !tx_busy;
+  if (tx_head != tx_tail) {
+    return 0;
+  }
+  if (!tx_busy) {
+    return 1;  /* the common case needs no port I/O */
+  }
+  /*
+   * The ring is empty but no THRE interrupt has confirmed the last byte
+   * left. If that interrupt was lost, tx_busy would stay set forever and a
+   * door flushing output (08h) would wait forever, so ask the UART.
+   */
+  if (inp(base + LSR) & LSR_TEMT) {
+    tx_busy = 0;
+    return 1;
+  }
+  return 0;
 }
 
 static int uart_carrier(void) {

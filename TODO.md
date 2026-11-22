@@ -11,12 +11,13 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 
 ## Harden the driver (testable today)
 
-- [ ] **Extend FOSTEST** to exercise the functions nothing tests yet: peek
-      (0Ch), block read (18h), keyboard (0Dh/0Eh), cursor and video
-      (11h–15h), flow control (0Fh), purge (09h/0Ah), and 1Bh buffer
-      free counts. Add matching scenarios to `scripts/test.sh`.
-- [ ] **8-bit clean test**: send all 256 byte values in both directions,
-      with and without `-E` (FF escaping is the risky part).
+- [x] **Extend FOSTEST**: `F` (00h 03h 06h 07h 0Bh 0Dh 0Fh 10h 11h–13h
+      15h 1Bh), `P` peek, `X` purge in/out, `K` keyboard (QEMU, typed via
+      the monitor); `funcs` scenario in `scripts/test.sh`. Found and fixed:
+      keyboard/screen functions were chained to the BIOS when DX (a cursor
+      position, not a port) didn't match our port.
+- [x] **8-bit clean test**: `B` sends 00–FF with 19h and receives 00–FF
+      with 18h, raw (DOSBox-X) and with `-E` FF escaping (QEMU).
 - [ ] **File transfer test**: a real Zmodem transfer (e.g. DSZ) through the
       FOSSIL, under both emulators.
 - [ ] **Real doors**: try a handful covering the common door libraries

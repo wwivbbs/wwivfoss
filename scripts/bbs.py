@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plays the BBS side of a door session for scripts/test.sh.
 
-    bbs.py PORT SCENARIO FRAMING TIMEOUT READY_FILE
+    bbs.py PORT SCENARIO FRAMING TIMEOUT READY_FILE [MONITOR_PORT]
 
 Listens on 127.0.0.1:PORT (like WWIV's listen-socket exec mode), creates
 READY_FILE once listening, accepts the emulator's connection to COM1 and runs
@@ -10,12 +10,16 @@ SCENARIO against FOSTEST:
     echo    banner, echo, send Q, expect BYE
     hangup  banner, echo, then the caller drops
     dtr     banner, echo, send H; the door lowers DTR and we must see it
+    funcs   FOSTEST's self-tests: F (local functions), P (peek), X (purge),
+            B (all 256 byte values both ways), K (keyboard, only with a
+            QEMU MONITOR_PORT to type the key), then Q
 
 FRAMING is "raw" (carrier is the TCP connection itself, as with DOSBox-X) or
 "inband" (WWIVFOSS -E: FF escapes carry line state; see foss_protocol.h).
 
 Exits 0 when the BBS side of the scenario completed.
 """
+import re
 import socket
 import sys
 import time
@@ -24,6 +28,7 @@ ESC = 0xFF
 LINE_RTS, LINE_DTR = 0x01, 0x02
 
 port, scenario, framing, timeout, ready_file = sys.argv[1:6]
+monitor_port = int(sys.argv[6]) if len(sys.argv) > 6 else None
 inband = framing == "inband"
 deadline = time.monotonic() + int(timeout)
 
@@ -68,7 +73,19 @@ class Door:
             self._feed(chunk)
 
     def expect(self, text):
-        self.wait_for(lambda: text.encode() in self.data, repr(text))
+        if isinstance(text, str):
+            text = text.encode()
+        self.wait_for(lambda: text in self.data, repr(text))
+
+    def expect_ok(self, name):
+        """Waits for FOSTEST's "<name> OK", failing on "<name> FAIL ..."."""
+        ok, bad = f"{name} OK".encode(), f"{name} FAIL".encode()
+        self.wait_for(lambda: ok in self.data or bad in self.data,
+                      f"{name} result")
+        m = re.search(rb"%s FAIL ([^\r\n]*)" % name.encode(), self.data)
+        if m:
+            fail(f"{name}: {m.group(1).decode('cp437')}")
+        print(f"ok - {name}")
 
     def send(self, data):
         if inband:
@@ -82,6 +99,13 @@ class Door:
 
 
 door = None
+
+
+def qemu_sendkey(key):
+    """Types a key on the emulated DOS console through the QEMU monitor."""
+    with socket.create_connection(("127.0.0.1", monitor_port), timeout=5) as m:
+        m.sendall(f"sendkey {key}\n".encode())
+        time.sleep(0.5)
 
 
 def fail(msg):
@@ -128,5 +152,36 @@ elif scenario == "dtr":
     door.wait_for(lambda: not door.lines & LINE_DTR, "DTR to drop")
     print("ok - door lowered DTR (seen in-band)")
     conn.close()
+elif scenario == "funcs":
+    door.send(b"F")
+    door.expect_ok("FUNCS")
+
+    door.send(b"P")
+    door.expect("PEEK READY")
+    door.send(b"x")
+    door.expect_ok("PEEK")
+
+    door.send(b"X")
+    door.expect("PURGE READY")
+    door.send(b"junkjunk")
+    door.expect_ok("PURGE")
+
+    door.send(b"B")
+    door.expect(b"BIN START\r\n" + bytes(range(256)) + b"\r\nBIN SENT")
+    print("ok - received all 256 byte values in order")
+    door.send(bytes(range(256)))
+    door.expect_ok("BIN")
+
+    if monitor_port:
+        door.send(b"K")
+        door.expect("KEY READY")
+        qemu_sendkey("k")
+        door.expect("KEY GOT k")
+        door.expect_ok("KEY")
+
+    door.send(b"Q")
+    door.expect("BYE")
+    print("ok - BYE received")
+    time.sleep(1)
 else:
     fail(f"unknown scenario: {scenario}")

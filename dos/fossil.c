@@ -168,6 +168,20 @@ static void idle_poll(void) {
 }
 
 static int port_is_ours(unsigned dx, unsigned char fn) {
+  switch (fn) {
+  case F_KBD_PEEK:
+  case F_KBD_READ:
+  case F_SET_CURSOR:
+  case F_GET_CURSOR:
+  case F_WRITE_ANSI:
+  case F_WATCHDOG:
+  case F_WRITE_BIOS:
+  case F_TIMER_CHAIN:
+  case F_REBOOT:
+    /* Keyboard, screen and system functions don't take a port: DX is
+       a cursor position or unused. */
+    return 1;
+  }
   if (dx == (unsigned)(g_opts.port - 1)) {
     return 1;
   }

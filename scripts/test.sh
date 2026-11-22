@@ -12,6 +12,8 @@
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
 #                     (qemu only: needs in-band framing to observe DTR)
+#             funcs   FOSTEST self-tests: local functions, peek, purge,
+#                     all 256 byte values both ways, and (qemu) keyboard
 #   MODE      runner    WWIVFOSS [opts] FOSTEST (default)
 #             resident  WWIVFOSS -L, FOSTEST, WWIVFOSS -U, then FOSTEST
 #                       again, which must find no FOSSIL
@@ -34,7 +36,8 @@ if [ "$emu" = all ]; then
   rc=0
   failed=""
   for m in runner resident; do
-    for combo in qemu:echo qemu:hangup qemu:dtr dosbox:echo dosbox:hangup; do
+    for combo in qemu:echo qemu:hangup qemu:dtr qemu:funcs \
+                 dosbox:echo dosbox:hangup dosbox:funcs; do
       e="${combo%%:*}"
       s="${combo##*:}"
       echo "=== $e / $s / $m"
@@ -53,7 +56,7 @@ if [ "$emu" = all ]; then
 fi
 
 case "$scenario" in
-  echo) want_errorlevel=0 ;;
+  echo|funcs) want_errorlevel=0 ;;
   hangup) want_errorlevel=2 ;;
   dtr) want_errorlevel=3 ;;
   *) echo "Unknown scenario: $scenario" >&2; exit 1 ;;
@@ -192,7 +195,9 @@ write_test_bat() {
 
 # Start the BBS side first; the emulator connects to it, as with WWIV's
 # listen-socket exec mode.
-python3 "$root/scripts/bbs.py" "$port" "$scenario" "$framing" "$timeout_secs" "$work/ready" &
+bbs_args=("$port" "$scenario" "$framing" "$timeout_secs" "$work/ready")
+[ "$emu" = qemu ] && bbs_args+=("$monitor_port")
+python3 "$root/scripts/bbs.py" "${bbs_args[@]}" &
 bbs_pid=$!
 for _ in $(seq 1 50); do
   [ -f "$work/ready" ] && break

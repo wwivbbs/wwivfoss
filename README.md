@@ -89,5 +89,5 @@ tools/fostest/  FOSTEST.EXE, a FOSSIL exerciser used as a test door
 vdd/            Win32 NTVDM Virtual Device Driver (planned)
 configs/        Emulator templates (DOSBox-X, QEMU)
 scripts/        Dev environment, build, test harness, FreeDOS shell
-docs/           Design notes
+docs/           Design notes (TODO.md at the root lists what's left)
 ```

@@ -30,7 +30,7 @@ One binary, two ways to install the same handler:
   still points into it.
 
 The resident copy currently keeps the whole block the Open Watcom runtime
-sized (about 37 KB). Trimming that is a TODO.
+sized (about 37 KB). Plan to get it to ~6.5 KB: `docs/todo-shrink.md`.
 
 ## Components
 
@@ -126,4 +126,4 @@ dropped, 1Bh size check).
    implementation covers both.
 2. Sharing door files with QEMU (disk image vs `fat:rw:`); DOSBox-X and
    dosemu2 mount host directories directly.
-3. Resident size (about 37 KB with the Open Watcom runtime and heap).
+3. Resident size: 37 KB today; see `docs/todo-shrink.md`.

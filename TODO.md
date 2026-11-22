@@ -20,8 +20,15 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       with 18h, raw (DOSBox-X) and with `-E` FF escaping (QEMU).
 - [ ] **File transfer test**: a real Zmodem transfer (e.g. DSZ) through the
       FOSSIL, under both emulators.
-- [ ] **Real doors**: try a handful covering the common door libraries
-      (OpenDoors, DoorDriver/RAD, LORD, TW2002) and fix what they expose.
+- [ ] **Real doors**: `scripts/test.sh doors` runs every door defined in
+      `tests/doors/` that's installed locally (`WWIVFOSS_DOORS`, default
+      `/wwiv/doors`): prepare a cached copy, expect its banner, hang up, and
+      check the door notices and exits, under both emulators in runner and
+      resident mode.
+  - [x] Global War 2.7 (`tests/doors/gw.sh`): all 4 pass.
+  - [ ] Editors: TIDE, OEdit, WWIVEdit (need WWIV editor drop files).
+  - [ ] From the archives: an OpenDoors door, LORD, TW2002, and DSZ for the
+        Zmodem test (https://mirrors.archeobits.com/bbs/archives.thebbs.org/).
 
 ## Emulator setup
 

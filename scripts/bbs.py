@@ -10,6 +10,8 @@ SCENARIO against FOSTEST:
     echo    banner, echo, send Q, expect BYE
     hangup  banner, echo, then the caller drops
     dtr     banner, echo, send H; the door lowers DTR and we must see it
+    door    a real door: wait for $DOOR_EXPECT, then hang up (the test
+            checks that the door notices and exits)
     funcs   FOSTEST's self-tests: F (local functions), P (peek), X (purge),
             B (all 256 byte values both ways), K (keyboard, only with a
             QEMU MONITOR_PORT to type the key), then Q
@@ -19,6 +21,7 @@ FRAMING is "raw" (carrier is the TCP connection itself, as with DOSBox-X) or
 
 Exits 0 when the BBS side of the scenario completed.
 """
+import os
 import re
 import socket
 import sys
@@ -127,6 +130,14 @@ except socket.timeout:
     fail("the emulator never connected")
 conn.settimeout(1)
 door = Door(conn)
+
+if scenario == "door":
+    door.expect(os.environ["DOOR_EXPECT"])
+    print(f"ok - door sent {os.environ['DOOR_EXPECT']!r}")
+    door.hang_up()
+    print(f"ok - caller hung up ({'DTR low in-band, ' if inband else ''}"
+          "socket closed)")
+    sys.exit(0)
 
 door.expect("FOSTEST ready")
 print("ok - banner received via FOSSIL block write")

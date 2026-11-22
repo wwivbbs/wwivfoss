@@ -75,7 +75,12 @@ connected to a socket, with `scripts/bbs.py` playing the BBS.
 sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3
 scripts/test.sh all                      # the whole matrix (10 runs)
 scripts/test.sh qemu dtr resident        # one combination
+scripts/test.sh doors                    # real doors found in /wwiv/doors
 ```
+
+Door tests are defined in `tests/doors/*.sh` and run against your own
+installed copies (set `WWIVFOSS_DOORS`); they're never committed, so CI only
+runs the FOSTEST matrix.
 
 `scripts/shell.sh` boots an interactive FreeDOS shell in QEMU with the latest
 build on A: and COM1 on `localhost:2323`.

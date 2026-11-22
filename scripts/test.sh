@@ -3,7 +3,8 @@
 # connected to a TCP socket, with scripts/bbs.py playing the BBS.
 #
 #   scripts/test.sh [EMULATOR] [SCENARIO] [MODE]
-#   scripts/test.sh all
+#   scripts/test.sh all      FOSTEST matrix (what CI runs)
+#   scripts/test.sh doors    every door in tests/doors/ found locally
 #
 #   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -E (in-band line control,
 #                     QEMU doesn't drop DCD when the socket closes)
@@ -14,10 +15,13 @@
 #                     (qemu only: needs in-band framing to observe DTR)
 #             funcs   FOSTEST self-tests: local functions, peek, purge,
 #                     all 256 byte values both ways, and (qemu) keyboard
+#             door:NAME  a real door from tests/doors/NAME.sh: expect its
+#                     banner, hang up, and the door must notice and exit
 #   MODE      runner    WWIVFOSS [opts] FOSTEST (default)
 #             resident  WWIVFOSS -L, FOSTEST, WWIVFOSS -U, then FOSTEST
 #                       again, which must find no FOSSIL
 #
+#   WWIVFOSS_DOORS=dir  where door tests find installed doors (/wwiv/doors)
 #   KEEP=1     keep .devenv/test/ for inspection
 #   TIMEOUT=n  seconds per step (default 120)
 #
@@ -55,7 +59,53 @@ if [ "$emu" = all ]; then
   exit $rc
 fi
 
+if [ "$emu" = doors ]; then
+  rc=0
+  failed=""
+  for def in "$root"/tests/doors/*.sh; do
+    name="$(basename "$def" .sh)"
+    src="$(DOOR_SRC=; . "$def"; echo "$DOOR_SRC")"
+    if [ ! -d "$src" ]; then
+      echo "=== door:$name: skipped ($src not found)"
+      continue
+    fi
+    for m in runner resident; do
+      for e in qemu dosbox; do
+        echo "=== $e / door:$name / $m"
+        if ! "$0" "$e" "door:$name" "$m"; then
+          rc=1
+          failed="$failed $e/door:$name/$m"
+        fi
+      done
+    done
+  done
+  if [ "$rc" = 0 ]; then echo "ALL DOORS PASSED"; else echo "FAILED:$failed"; fi
+  exit $rc
+fi
+
+# Runs COMMAND in a throwaway DOSBox-X session with DIR as C: (door setup).
+dos_run() {
+  local dir="$1" cmd="$2" conf
+  conf="$(mktemp)"
+  printf '[dosbox]\nquit warning = false\n[cpu]\ncycles = max\n[autoexec]\nmount c "%s"\nc:\n%s\nexit\n' \
+    "$dir" "$cmd" > "$conf"
+  SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+    timeout 120 dosbox-x -conf "$conf" -nogui -nomenu -fastlaunch >/dev/null 2>&1 || true
+  rm -f "$conf"
+}
+
+door=""
 case "$scenario" in
+  door:*)
+    door="${scenario#door:}"
+    def="$root/tests/doors/$door.sh"
+    [ -f "$def" ] || { echo "No door definition: $def" >&2; exit 1; }
+    DOOR_HANGUP_ERRORLEVEL=any
+    . "$def"
+    [ -d "$DOOR_SRC" ] || { echo "Door not installed: $DOOR_SRC" >&2; exit 1; }
+    need_dosbox_for_prep=1
+    want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
+    ;;
   echo|funcs) want_errorlevel=0 ;;
   hangup) want_errorlevel=2 ;;
   dtr) want_errorlevel=3 ;;
@@ -87,11 +137,23 @@ case "$emu" in
     ;;
   *) echo "Unknown emulator: $emu" >&2; exit 1 ;;
 esac
+if [ -n "$door" ]; then
+  need dosbox-x dosbox-x  # door_prepare runs setup steps in DOSBox-X
+  # Prepare once into a cache; tests run on a fresh copy of it.
+  cache="$dev/doors/$door"
+  if [ ! -f "$cache/.prepared" ]; then
+    rm -rf "$cache"
+    mkdir -p "$cache"
+    cp -r "$DOOR_SRC"/. "$cache"/
+    door_prepare "$cache" || { echo "Preparing door $door failed" >&2; exit 1; }
+    touch "$cache/.prepared"
+  fi
+fi
 for f in "$root/dos/wwivfoss.exe" "$root/tools/fostest/fostest.exe"; do
   [ -f "$f" ] || { echo "Missing $f (run scripts/build.sh)" >&2; exit 1; }
 done
 
-work="$dev/test/$emu-$scenario-$mode"
+work="$dev/test/$emu-${scenario/:/-}-$mode"
 rm -rf "$work"
 mkdir -p "$work"
 port=$((20000 + RANDOM % 20000))
@@ -151,7 +213,18 @@ write_test_bat() {
       # FreeCOM needs COMSPEC to find itself for COMMAND /C.
       echo "set COMSPEC=A:\\FREEDOS\\BIN\\COMMAND.COM"
     fi
-    if [ "$mode" = resident ]; then
+    if [ -n "$door" ]; then
+      # Real door: run it from its own drive and directory.
+      echo "$door_drive"
+      echo "cd \\"
+      if [ "$mode" = resident ]; then
+        echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
+        echo "if errorlevel 1 goto loadfail"
+        echo "$DOOR_CMD"
+      else
+        echo "${d}\\WWIVFOSS.EXE $flags $DOOR_CMD"
+      fi
+    elif [ "$mode" = resident ]; then
       echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
       echo "if errorlevel 1 goto loadfail"
       echo "${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
@@ -195,7 +268,10 @@ write_test_bat() {
 
 # Start the BBS side first; the emulator connects to it, as with WWIV's
 # listen-socket exec mode.
-bbs_args=("$port" "$scenario" "$framing" "$timeout_secs" "$work/ready")
+bbs_scenario="$scenario"
+[ -n "$door" ] && bbs_scenario=door
+export DOOR_EXPECT="${DOOR_EXPECT:-}"
+bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
 [ "$emu" = qemu ] && bbs_args+=("$monitor_port")
 python3 "$root/scripts/bbs.py" "${bbs_args[@]}" &
 bbs_pid=$!
@@ -214,6 +290,13 @@ case "$emu" in
       > "$work/FDCONFIG.SYS"
     # QEXIT.COM: mov al,0 / out 0F4h,al / int 20h -> QEMU powers off.
     printf '\xb0\x00\xe6\xf4\xcd\x20' > "$work/QEXIT.COM"
+    door_drive=C:
+    door_args=()
+    if [ -n "$door" ]; then
+      mkdir -p "$work/c"
+      cp -r "$cache"/. "$work/c"/
+      door_args=(-drive "file=fat:rw:$work/c,format=raw,if=ide,index=1")
+    fi
     write_test_bat "A:" 1
     mcopy -o -i "$img" "$work/FDCONFIG.SYS" "$work/TEST.BAT" \
       "$work/QEXIT.COM" "$root/dos/wwivfoss.exe" \
@@ -221,6 +304,7 @@ case "$emu" in
     qemu-system-i386 \
       -M pc -m 16 \
       -drive "file=$img,format=raw,if=floppy" -boot a \
+      "${door_args[@]}" \
       -display none \
       -chardev "socket,id=bbs,host=127.0.0.1,port=$port" \
       -serial chardev:bbs \
@@ -231,6 +315,13 @@ case "$emu" in
     ;;
   dosbox)
     cp "$root/dos/wwivfoss.exe" "$root/tools/fostest/fostest.exe" "$work/"
+    door_drive=D:
+    door_mount=""
+    if [ -n "$door" ]; then
+      mkdir -p "$work/d"
+      cp -r "$cache"/. "$work/d"/
+      door_mount="mount d \"$work/d\""
+    fi
     write_test_bat "C:" 0
     cat > "$work/dosbox.conf" <<EOF
 [dosbox]
@@ -244,6 +335,7 @@ serial1 = nullmodem server:127.0.0.1 port:$port transparent:1
 
 [autoexec]
 mount c "$work"
+$door_mount
 c:
 call C:\\TEST.BAT
 exit
@@ -279,7 +371,7 @@ if [ "$mode" = resident ]; then
 fi
 [ -f "$work/RESULT.TXT" ] || fail "no RESULT.TXT; the test batch file did not finish"
 errorlevel="$(tr -dc '0-9' < "$work/RESULT.TXT")"
-if [ "$errorlevel" != "$want_errorlevel" ]; then
+if [ "$want_errorlevel" != any ] && [ "$errorlevel" != "$want_errorlevel" ]; then
   fail "errorlevel $errorlevel, wanted $want_errorlevel"
 fi
 echo "ok - door exited with errorlevel $errorlevel"

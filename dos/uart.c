@@ -17,6 +17,7 @@
 #include <dos.h>
 #include <i86.h>
 
+#include "foss_protocol.h"
 #include "wwivfoss.h"
 
 #define RXBUF_SIZE 2048            /* must be a power of two */
@@ -84,6 +85,12 @@ static volatile unsigned tx_head;  /* written by the foreground */
 static volatile unsigned tx_tail;  /* written by the ISR */
 static volatile unsigned char tx_busy;  /* a THRE interrupt is expected */
 
+/* -E in-band line control (see foss_protocol.h). */
+static volatile unsigned char remote_lines;  /* last line state from BBS */
+static unsigned char rx_escape;              /* saw FF, waiting for next */
+
+static int uart_carrier(void);
+
 /* Move bytes from the TX ring into the UART. Interrupts must be off. */
 static void tx_fill(void) {
   unsigned n;
@@ -99,6 +106,18 @@ static void rx_drain(void) {
   unsigned char c;
   while (inp(base + LSR) & LSR_DR) {
     c = (unsigned char)inp(base + RBR);
+    if (g_opts.inband) {
+      if (rx_escape) {
+        rx_escape = 0;
+        if (c != WWIVFOSS_INBAND_ESCAPE) {
+          remote_lines = c;          /* FF nn: line state, not data */
+          continue;
+        }
+      } else if (c == WWIVFOSS_INBAND_ESCAPE) {
+        rx_escape = 1;
+        continue;
+      }
+    }
     next = (rx_head + 1) & RXBUF_MASK;
     if (next == rx_tail) {
       rx_lost = 1;
@@ -172,6 +191,8 @@ static int uart_open(void) {
   rx_lost = 0;
   tx_head = tx_tail = 0;
   tx_busy = 0;
+  remote_lines = WWIVFOSS_LINE_RTS | WWIVFOSS_LINE_DTR;
+  rx_escape = 0;
   rx_drain();
   rx_head = rx_tail = 0;
   outp(base + MCR, MCR_DTR | MCR_RTS | MCR_OUT2);
@@ -187,7 +208,7 @@ static void uart_close(void) {
 
   /* Let queued output drain: up to ~2s (36 ticks) while carrier is up. */
   while ((tx_head != tx_tail || tx_busy) && *ticks - start < 36) {
-    if (!(inp(base + MSR) & MSR_DCD) && !g_opts.force_carrier) {
+    if (!uart_carrier() && !g_opts.force_carrier) {
       break;
     }
   }
@@ -235,24 +256,37 @@ static int uart_rx_get(void) {
   return c;
 }
 
-static int uart_tx_put(unsigned char c) {
-  unsigned next = (tx_head + 1) & TXBUF_MASK;
-  if (next == tx_tail) {
-    return 0;
-  }
-  txbuf[tx_head] = c;
-  _disable();
-  tx_head = next;
-  if (!tx_busy && (inp(base + LSR) & LSR_THRE)) {
-    /* Transmitter idle: prime it; the THRE interrupt does the rest. */
-    tx_fill();
-  }
-  _enable();
-  return 1;
-}
-
 static unsigned uart_tx_free(void) {
   return (TXBUF_SIZE - 1) - ((tx_head - tx_tail) & TXBUF_MASK);
+}
+
+/* Append to the TX ring. Interrupts must be off and room checked. */
+static void tx_push(unsigned char c) {
+  txbuf[tx_head] = c;
+  tx_head = (tx_head + 1) & TXBUF_MASK;
+}
+
+/* Start the transmitter if it's idle; THRE interrupts do the rest. */
+static void tx_kick(void) {
+  if (!tx_busy && (inp(base + LSR) & LSR_THRE)) {
+    tx_fill();
+  }
+}
+
+static int uart_tx_put(unsigned char c) {
+  /* With -E a literal FF goes out doubled, so it needs two slots. */
+  unsigned need = (g_opts.inband && c == WWIVFOSS_INBAND_ESCAPE) ? 2 : 1;
+  if (uart_tx_free() < need) {
+    return 0;
+  }
+  _disable();
+  tx_push(c);
+  if (need == 2) {
+    tx_push(c);
+  }
+  tx_kick();
+  _enable();
+  return 1;
 }
 
 static int uart_tx_empty(void) {
@@ -260,7 +294,11 @@ static int uart_tx_empty(void) {
 }
 
 static int uart_carrier(void) {
-  return (inp(base + MSR) & MSR_DCD) ? 1 : 0;
+  if (!(inp(base + MSR) & MSR_DCD)) {
+    return 0;
+  }
+  /* With -E the BBS reports a hangup as DTR low in the byte stream. */
+  return !g_opts.inband || (remote_lines & WWIVFOSS_LINE_DTR);
 }
 
 static int uart_overrun(void) {
@@ -272,6 +310,16 @@ static int uart_overrun(void) {
 static void uart_set_dtr(int on) {
   unsigned char mcr = (unsigned char)inp(base + MCR);
   outp(base + MCR, on ? (mcr | MCR_DTR) : (mcr & ~MCR_DTR));
+  if (g_opts.inband) {
+    /* Tell the BBS: FF 01 (door hung up) or FF 03 (DTR raised). */
+    _disable();
+    if (uart_tx_free() >= 2) {
+      tx_push(WWIVFOSS_INBAND_ESCAPE);
+      tx_push((unsigned char)(WWIVFOSS_LINE_RTS | (on ? WWIVFOSS_LINE_DTR : 0)));
+      tx_kick();
+    }
+    _enable();
+  }
 }
 
 static void uart_purge_rx(void) {
@@ -289,6 +337,10 @@ static void uart_purge_tx(void) {
   _enable();
 }
 
+static unsigned char uart_irq_vector(void) {
+  return irq_vector;
+}
+
 const struct transport uart_transport = {
   "uart",
   uart_open,
@@ -304,4 +356,5 @@ const struct transport uart_transport = {
   uart_set_dtr,
   uart_purge_rx,
   uart_purge_tx,
+  uart_irq_vector,
 };

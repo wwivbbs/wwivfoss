@@ -12,17 +12,25 @@
 Non-goals: being a telnet server, emulating a modem, or replacing a full
 DOS emulator.
 
-## Model: a runner, not a resident TSR
+## Model: runner or resident
 
-`WWIVFOSS [options] COMMAND` installs its INT 14h handler, spawns `COMMAND`
-via `%COMSPEC% /C`, and restores everything when the door exits. Compared to a
-load/unload TSR (NetFoss style) this cannot leave a stale handler behind when a
-door crashes or a batch file aborts, and the command line matches the old
-OS/2 wwivfoss, so existing door configurations carry over.
+One binary, two ways to install the same handler:
 
-Cost: the runner stays in memory while the door runs. Keep it small (target
-well under 32 KB resident). If that becomes a problem, a `/TSR` mode can be
-added later without changing the dispatcher.
+* **Runner** (`WWIVFOSS [opts] COMMAND`): install, spawn the door, restore.
+  Can't leave a stale handler behind when a door crashes, passes the door's
+  exit code through (`.EXE`/`.COM` doors are spawned directly; only `.BAT`
+  goes through `COMSPEC /C`), and matches the old OS/2 wwivfoss command
+  line. Best for a modern BBS running one door per emulator session.
+* **Resident** (`WWIVFOSS -L`, `WWIVFOSS -U`): load once, BNU/X00 style.
+  Needed for a DOS BBS running inside the emulator. `-U` finds the resident
+  copy through a private INT 14h call (`AH=7Eh`, `BX='WF'`, see
+  `foss_protocol.h`), refuses if INT 14h or the UART IRQ was hooked after
+  us, has the resident copy close its transport and restore its vectors,
+  then scans the vector table and frees the memory only if nothing else
+  still points into it.
+
+The resident copy currently keeps the whole block the Open Watcom runtime
+sized (about 37 KB). Trimming that is a TODO.
 
 ## Components
 
@@ -110,10 +118,12 @@ dropped, 1Bh size check).
 
 ## Open questions
 
-1. Which emulators raise DCD on their socket serial backends? This decides
-   whether `-C` is needed by default, or whether an in-band control channel
-   (carrier, DTR, break) between WWIVFOSS and the BBS is worth defining.
-   `include/foss_protocol.h` reserves space for it.
+1. ~~Which emulators raise DCD on their socket serial backends?~~ Answered:
+   DOSBox-X raises DCD on connect and drops it when the socket closes.
+   QEMU (10.0) holds DCD high forever (a `modemctl` chardev option was
+   proposed upstream in 2020 but never merged). For QEMU, `-E` carries
+   line state in-band using DOSBox-X's nullmodem framing, so one BBS-side
+   implementation covers both.
 2. Sharing door files with QEMU (disk image vs `fat:rw:`); DOSBox-X and
    dosemu2 mount host directories directly.
-3. Resident size of the runner with the Open Watcom runtime.
+3. Resident size (about 37 KB with the Open Watcom runtime and heap).

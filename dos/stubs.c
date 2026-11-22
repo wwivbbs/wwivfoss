@@ -29,17 +29,18 @@ static int stub_none(void) { return -1; }
 static int stub_put(unsigned char c) { (void)c; return 0; }
 static int stub_false(void) { return 0; }
 static void stub_set(int on) { (void)on; }
+static unsigned char stub_vec(void) { return 0; }
 
 const struct transport vdd_transport = {
   "vdd",
   vdd_open, stub_close, stub_zero, stub_none, stub_none, stub_put,
   stub_zero, stub_false, stub_false, stub_false, stub_set, stub_close,
-  stub_close,
+  stub_close, stub_vec,
 };
 
 const struct transport pipe_transport = {
   "pipe",
   pipe_open, stub_close, stub_zero, stub_none, stub_none, stub_put,
   stub_zero, stub_false, stub_false, stub_false, stub_set, stub_close,
-  stub_close,
+  stub_close, stub_vec,
 };

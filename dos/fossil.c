@@ -11,7 +11,9 @@
  */
 #include <dos.h>
 #include <i86.h>
+#include <stdlib.h>
 
+#include "foss_protocol.h"
 #include "fossil.h"
 #include "wwivfoss.h"
 
@@ -38,6 +40,10 @@ static char ident[] = "WWIVFOSS " WWIVFOSS_VERSION " (https://github.com/wwivbbs
 static struct fossil_info info;
 
 const char* fossil_ident(void) { return ident; }
+
+unsigned fossil_entry_segment(void) {
+  return FP_SEG((void __far*)int14_entry);
+}
 
 /* ---------------------------------------------------------------------- */
 /* Low level helpers (inline asm so no runtime calls happen in ISR context) */
@@ -192,6 +198,23 @@ void __interrupt __far int14_handler(union INTPACK r) {
   static unsigned char* src;
 
   fn = r.h.ah;
+
+  /* Private API for WWIVFOSS -U; see foss_protocol.h. */
+  if (fn == WWIVFOSS_API_FUNC && r.w.bx == WWIVFOSS_API_MAGIC) {
+    if (r.h.al == WWIVFOSS_API_QUERY) {
+      r.w.ax = WWIVFOSS_API_MAGIC;
+      r.w.bx = _psp;
+      r.w.cx = fossil_entry_segment();
+      r.w.dx = g_transport->irq_vector();
+    } else if (r.h.al == WWIVFOSS_API_SHUTDOWN && !in_handler) {
+      _enable();
+      g_transport->close();
+      fossil_remove();
+      r.w.ax = WWIVFOSS_API_MAGIC;
+    }
+    return;
+  }
+
   if (in_handler || !port_is_ours(r.w.dx, fn)) {
     _chain_intr(old_int14);
   }

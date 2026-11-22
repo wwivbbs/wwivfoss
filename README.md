@@ -16,28 +16,43 @@ FOSSIL side talks to the outside world through a pluggable *transport*:
 The BBS is responsible for the caller's connection (telnet, SSH, ...). It hands
 the door a byte stream; WWIVFOSS only has to get those bytes in and out of DOS.
 
-Status: **early development.** The `uart` transport and FOSSIL dispatcher
-work under QEMU and DOSBox-X (see Testing). Carrier loss is detected under
-DOSBox-X; QEMU needs the planned in-band control mode. See `docs/design.md`.
+Status: **early development.** The `uart` transport, FOSSIL dispatcher,
+runner and resident (`-L`/`-U`) modes pass end-to-end tests under QEMU and
+DOSBox-X, including carrier loss and DTR hangup. See `docs/design.md`.
 
 ## Usage
 
 ```
-WWIVFOSS [options] COMMAND [ARGS...]
+WWIVFOSS [options] COMMAND [ARGS...]   run a door, then unload
+WWIVFOSS -L [options]                  load resident (like BNU/X00)
+WWIVFOSS -U                            unload the resident copy
 
   -P#   COM port for the uart transport (1-4, default 1)
+  -E    In-band line control: carrier and DTR travel in the byte stream
+        (needed for QEMU; same framing as DOSBox-X's nullmodem)
+  -C    Force carrier detect on
   -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe
   -N#   Node number (used by the vdd and pipe transports)
-  -C    Force carrier detect on (for emulators that don't drive DCD)
   -I0   Disable idle/timeslice release while doors poll
   -?    Help
 ```
 
-Example (inside DOSBox-X or QEMU):
+Examples:
 
 ```
-WWIVFOSS -P1 C:\DOORS\LORD\START.BAT 1
+WWIVFOSS -P1 C:\DOORS\LORD\START.BAT 1      DOSBox-X, one door
+WWIVFOSS -P1 -E C:\DOORS\LORD\LORD.EXE      QEMU, one door
+WWIVFOSS -L -P1                              resident, for a DOS BBS
 ```
+
+`-U` refuses to unload if another program hooked INT 14h or the UART IRQ
+after WWIVFOSS loaded, and leaves the memory allocated if any other vector
+still points into it.
+
+Carrier: under DOSBox-X, DCD follows the TCP connection, so the BBS just
+closes the socket when the caller hangs up. QEMU never drops DCD, so use
+`-E` there and have the BBS send `FF 00` before closing; the door lowering
+DTR arrives at the BBS as `FF 01`. See `include/foss_protocol.h`.
 
 ## Building
 
@@ -58,8 +73,8 @@ connected to a socket, with `scripts/bbs.py` playing the BBS.
 
 ```
 sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3
-scripts/test.sh all              # qemu and dosbox, echo and hangup
-scripts/test.sh dosbox hangup    # one combination
+scripts/test.sh all                      # the whole matrix (10 runs)
+scripts/test.sh qemu dtr resident        # one combination
 ```
 
 `scripts/shell.sh` boots an interactive FreeDOS shell in QEMU with the latest

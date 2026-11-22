@@ -3,33 +3,52 @@
  * Copyright 2026 WWIV Software Services
  * Licensed under the Apache License, Version 2.0 (see LICENSE).
  *
- * Runner: install the FOSSIL, run the door, remove the FOSSIL.
+ * Three ways to run:
+ *   WWIVFOSS [options] COMMAND   runner: install, run COMMAND, remove
+ *   WWIVFOSS -L [options]        load resident (TSR)
+ *   WWIVFOSS -U                  unload the resident copy
  */
 #include <ctype.h>
+#include <dos.h>
+#include <i86.h>
 #include <process.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "foss_protocol.h"
 #include "wwivfoss.h"
 
 /* DOS command tails are limited to 127 bytes, including "/C ". */
 #define MAX_COMMAND 120
 
-struct options g_opts = {1, 'U', 0, 0, 1};
+/* Exit codes. A runner otherwise returns the door's own exit code. */
+#define EXIT_USAGE      1
+#define EXIT_TRANSPORT  2
+#define EXIT_SPAWN      3
+#define EXIT_LOADED     4   /* -L: already resident */
+#define EXIT_NOT_LOADED 5   /* -U: nothing to unload */
+#define EXIT_HOOKED     6   /* -U: another program hooked our vectors */
+#define EXIT_FREE       7   /* -U: couldn't free the resident memory */
+
+struct options g_opts = {1, 'U', 0, 0, 1, 0};
 const struct transport* g_transport;
 
 static void usage(void) {
   fprintf(stderr,
     "Usage:\r\n"
-    "  WWIVFOSS [options] COMMAND [ARGS...]\r\n"
+    "  WWIVFOSS [options] COMMAND [ARGS...]   run a door, then unload\r\n"
+    "  WWIVFOSS -L [options]                  load resident\r\n"
+    "  WWIVFOSS -U                            unload resident copy\r\n"
     "\r\n"
     "Options:\r\n"
     "  -P#   COM port for the uart transport (1-4, default 1)\r\n"
+    "  -E    In-band line control (carrier/DTR in the byte stream;\r\n"
+    "        needed for QEMU, see foss_protocol.h)\r\n"
+    "  -C    Force carrier detect on\r\n"
     "  -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe\r\n"
     "  -N#   Node number (vdd and pipe transports)\r\n"
-    "  -C    Force carrier detect on\r\n"
     "  -I0   Don't release timeslices while doors poll\r\n"
     "  -?    This help\r\n"
     "\r\n"
@@ -56,69 +75,43 @@ static int is_batch(const char* prog) {
   return stricmp(dot, ".BAT") == 0;
 }
 
-int main(int argc, char** argv) {
-  char command[MAX_COMMAND + 1];
-  const char* comspec;
-  int first = 0;
-  int i;
-  int rc;
+/* Calls the private API of a resident copy. Returns 1 if one answered. */
+static int resident_api(unsigned char subfn, union REGS* out) {
+  union REGS r;
+  memset(&r, 0, sizeof(r));
+  r.h.ah = WWIVFOSS_API_FUNC;
+  r.h.al = subfn;
+  r.x.bx = WWIVFOSS_API_MAGIC;
+  int86(0x14, &r, out);
+  return out->x.ax == WWIVFOSS_API_MAGIC;
+}
 
-  fprintf(stderr, "%s\r\n", fossil_ident());
-  command[0] = '\0';
-
-  for (i = 1; i < argc; i++) {
-    const char* arg = argv[i];
-    if (command[0] == '\0' && (arg[0] == '-' || arg[0] == '/') && arg[1]) {
-      const char* val = arg + 2;
-      switch (toupper((unsigned char)arg[1])) {
-      case 'P': g_opts.port = atoi(val); break;
-      case 'T': g_opts.transport = *val; break;
-      case 'N': g_opts.node = atoi(val); break;
-      case 'C': g_opts.force_carrier = 1; break;
-      case 'I': g_opts.idle = (*val != '0'); break;
-      case '?': usage(); return 0;
-      default:
-        fprintf(stderr, "Unknown option: %s\r\n", arg);
-        usage();
-        return 1;
-      }
-      continue;
-    }
-    /* First positional argument starts the door command line. */
-    if (!first) {
-      first = i;
-    }
-    if (strlen(command) + strlen(arg) + 1 > MAX_COMMAND) {
-      fprintf(stderr, "Command line too long.\r\n");
-      return 1;
-    }
-    if (command[0]) {
-      strcat(command, " ");
-    }
-    strcat(command, arg);
-  }
-
-  if (!command[0]) {
-    usage();
-    return 1;
-  }
-
+static int open_transport(void) {
   g_transport = pick_transport(g_opts.transport);
   if (!g_transport) {
     fprintf(stderr, "Unknown transport: %c\r\n", g_opts.transport);
-    return 1;
+    return 0;
   }
   if (!g_transport->open()) {
     fprintf(stderr, "Unable to open the %s transport (port %d).\r\n",
             g_transport->name, g_opts.port);
-    return 2;
+    return 0;
   }
   if (!g_opts.force_carrier && !g_transport->carrier()) {
     fprintf(stderr,
             "Warning: no carrier detect on COM%d. Use -C if your emulator\r\n"
             "doesn't provide DCD on its serial port.\r\n", g_opts.port);
   }
+  return 1;
+}
 
+static int run_door(char** argv, int first, const char* command) {
+  const char* comspec;
+  int rc;
+
+  if (!open_transport()) {
+    return EXIT_TRANSPORT;
+  }
   /* Ctrl-Break must not kill us while our vectors are installed. */
   signal(SIGINT, SIG_IGN);
   signal(SIGBREAK, SIG_IGN);
@@ -146,7 +139,157 @@ int main(int argc, char** argv) {
 
   if (rc == -1) {
     perror("WWIVFOSS: unable to run command");
-    return 3;
+    return EXIT_SPAWN;
   }
   return rc;
+}
+
+static int load_resident(void) {
+  union REGS r;
+  unsigned __far* env_seg;
+  unsigned paras;
+
+  if (resident_api(WWIVFOSS_API_QUERY, &r)) {
+    printf("WWIVFOSS is already resident.\r\n");
+    return EXIT_LOADED;
+  }
+  if (!open_transport()) {
+    return EXIT_TRANSPORT;
+  }
+  fossil_install();
+
+  /* Release our copy of the environment; the TSR doesn't need it. */
+  env_seg = (unsigned __far*)MK_FP(_psp, 0x2C);
+  if (*env_seg) {
+    _dos_freemem(*env_seg);
+    *env_seg = 0;
+  }
+  /* Keep the whole block the C runtime sized for us (from its MCB). */
+  paras = *(unsigned __far*)MK_FP(_psp - 1, 3);
+  printf("WWIVFOSS resident on COM%d (%u KB)%s. WWIVFOSS -U unloads.\r\n",
+          g_opts.port, (paras + 63) / 64, g_opts.inband ? ", in-band" : "");
+  fflush(stdout);
+  fflush(stderr);
+  _dos_keep(0, paras);
+  return 0;  /* not reached */
+}
+
+static int unload_resident(void) {
+  union REGS r;
+  unsigned psp, seg, vec;
+  void (__interrupt __far* v)(void);
+
+  if (!resident_api(WWIVFOSS_API_QUERY, &r)) {
+    printf("WWIVFOSS is not resident.\r\n");
+    return EXIT_NOT_LOADED;
+  }
+  psp = r.x.bx;
+  seg = r.x.cx;
+  vec = r.x.dx;
+
+  /* Like BNU: refuse if something hooked our vectors after we loaded. */
+  v = _dos_getvect(0x14);
+  if (FP_SEG(v) != seg) {
+    printf("Can't unload: INT 14h was hooked by another program.\r\n");
+    return EXIT_HOOKED;
+  }
+  if (vec) {
+    v = _dos_getvect(vec);
+    if (FP_SEG(v) != seg) {
+      printf("Can't unload: INT %02Xh was hooked by another program.\r\n", vec);
+      return EXIT_HOOKED;
+    }
+  }
+
+  resident_api(WWIVFOSS_API_SHUTDOWN, &r);
+
+  /*
+   * The resident copy restored INT 14h and its IRQ. If any other vector
+   * still points into its memory (the C runtime hooking something at
+   * startup, say), freeing the block would leave a dangling handler, so
+   * leave the memory allocated instead.
+   */
+  {
+    unsigned long lo = (unsigned long)psp << 4;
+    unsigned long hi = lo + ((unsigned long)*(unsigned __far*)MK_FP(psp - 1, 3) << 4);
+    unsigned n;
+    for (n = 0; n < 256; n++) {
+      unsigned long a;
+      if (n == 0x30 || n == 0x31) {
+        continue;  /* not vectors: DOS's CP/M "CALL 5" far jump lives here */
+      }
+      v = _dos_getvect(n);
+      a = ((unsigned long)FP_SEG(v) << 4) + FP_OFF(v);
+      if (a >= lo && a < hi) {
+        printf("Unloaded, but INT %02Xh still points into it; "
+                "leaving its memory allocated.\r\n", n);
+        return EXIT_FREE;
+      }
+    }
+  }
+
+  if (_dos_freemem(psp) != 0) {
+    printf("Unloaded, but couldn't free its memory (PSP %04X).\r\n", psp);
+    return EXIT_FREE;
+  }
+  printf("WWIVFOSS unloaded.\r\n");
+  return 0;
+}
+
+int main(int argc, char** argv) {
+  char command[MAX_COMMAND + 1];
+  int first = 0;
+  int load = 0;
+  int unload = 0;
+  int i;
+
+  fprintf(stderr, "%s\r\n", fossil_ident());
+  command[0] = '\0';
+
+  for (i = 1; i < argc; i++) {
+    const char* arg = argv[i];
+    if (!first && (arg[0] == '-' || arg[0] == '/') && arg[1]) {
+      const char* val = arg + 2;
+      switch (toupper((unsigned char)arg[1])) {
+      case 'P': g_opts.port = atoi(val); break;
+      case 'E': g_opts.inband = 1; break;
+      case 'C': g_opts.force_carrier = 1; break;
+      case 'T': g_opts.transport = *val; break;
+      case 'N': g_opts.node = atoi(val); break;
+      case 'I': g_opts.idle = (*val != '0'); break;
+      case 'L': load = 1; break;
+      case 'U': unload = 1; break;
+      case '?': usage(); return 0;
+      default:
+        fprintf(stderr, "Unknown option: %s\r\n", arg);
+        usage();
+        return EXIT_USAGE;
+      }
+      continue;
+    }
+    /* First positional argument starts the door command line. */
+    if (!first) {
+      first = i;
+    }
+    if (strlen(command) + strlen(arg) + 1 > MAX_COMMAND) {
+      fprintf(stderr, "Command line too long.\r\n");
+      return EXIT_USAGE;
+    }
+    if (command[0]) {
+      strcat(command, " ");
+    }
+    strcat(command, arg);
+  }
+
+  if (load + unload + (first != 0) != 1) {
+    usage();
+    return EXIT_USAGE;
+  }
+  if (unload) {
+    return unload_resident();
+  }
+  if (load) {
+    return load_resident();
+  }
+  return run_door(argv, first, command);
 }

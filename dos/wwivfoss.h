@@ -15,6 +15,7 @@ struct options {
   int  node;           /* node number, for vdd/pipe transports */
   int  force_carrier;  /* report DCD even when the line is down */
   int  idle;           /* release timeslices while doors poll */
+  int  inband;         /* -E: line state travels in the byte stream */
 };
 
 extern struct options g_opts;
@@ -41,6 +42,7 @@ struct transport {
   void     (*set_dtr)(int on);
   void     (*purge_rx)(void);
   void     (*purge_tx)(void);
+  unsigned char (*irq_vector)(void); /* hooked hardware vector, or 0 */
 };
 
 extern const struct transport uart_transport;
@@ -53,5 +55,6 @@ extern const struct transport* g_transport;
 void fossil_install(void);
 void fossil_remove(void);
 const char* fossil_ident(void);
+unsigned fossil_entry_segment(void);
 
 #endif /* WWIVFOSS_WWIVFOSS_H */

@@ -8,7 +8,7 @@ jobs:
   dos:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: open-watcom/setup-watcom@v0
         with:
@@ -17,7 +17,7 @@ jobs:
       - name: Build
         run: scripts/build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: wwivfoss-dos
           path: |
@@ -25,6 +25,25 @@ jobs:
             dos/wwivfoss.map
             tools/fostest/fostest.exe
 
-  # Planned: boot FreeDOS under QEMU with COM1 on a socket, run
-  # "WWIVFOSS -P1 FOSTEST", drive it over the socket and check the echo and
-  # exit code. See docs/design.md ("Testing").
+      - name: Install emulators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3
+
+      - uses: actions/cache@v4
+        with:
+          path: .devenv/downloads
+          key: freedos-1.4
+
+      - name: Fetch FreeDOS
+        run: SKIP_OW=1 scripts/setup-dev.sh
+
+      - name: Test (QEMU and DOSBox-X, runner and resident)
+        run: TIMEOUT=90 scripts/test.sh all
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-logs
+          path: .devenv/test/

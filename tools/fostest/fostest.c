@@ -8,8 +8,14 @@
  *   FOSTEST [port]      port is 1-based (default 1)
  *
  * Initialises the FOSSIL, prints driver information, sends a banner, then
- * echoes everything it receives. Exits 0 when it receives 'Q', 2 on carrier
- * loss, 1 if no FOSSIL is present. ESC on the local keyboard also exits.
+ * echoes everything it receives. Exit codes:
+ *
+ *   0  received 'Q' (commands are uppercase only)
+ *   1  no FOSSIL present
+ *   2  carrier lost (the caller hung up)
+ *   3  received 'H': the door hung up by lowering DTR (function 06h)
+ *
+ * ESC on the local keyboard also exits (0).
  */
 #include <conio.h>
 #include <dos.h>
@@ -83,7 +89,7 @@ int main(int argc, char** argv) {
   printf("FOSTEST: info bytes %u, in buffer %u, out buffer %u\n",
          r.x.ax, info.ibufr, info.obufr);
 
-  send("FOSTEST ready. Type text to echo; Q quits.\r\n");
+  send("FOSTEST ready. Type text to echo; Q quits, H hangs up.\r\n");
 
   for (;;) {
     st = fossil(F_STATUS, 0);
@@ -100,11 +106,19 @@ int main(int argc, char** argv) {
     }
     ch = fossil(F_RX_WAIT, 0) & 0xFF;
     ++received;
-    if (ch == 'Q' || ch == 'q') {
+    if (ch == 'Q') {
       send("\r\nBYE\r\n");
       fossil(F_FLUSH_OUT, 0);
       printf("FOSTEST: received %lu bytes, exiting\n", received);
       break;
+    }
+    if (ch == 'H') {
+      send("\r\nHANGUP\r\n");
+      fossil(F_FLUSH_OUT, 0);
+      fossil(F_DTR, 0);
+      fossil(F_FLUSH_OUT, 0);
+      printf("FOSTEST: lowered DTR after %lu bytes\n", received);
+      return 3;
     }
     fossil(F_TX_WAIT, (unsigned char)ch);
   }

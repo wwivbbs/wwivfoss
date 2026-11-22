@@ -26,7 +26,8 @@ fetch() {
   echo "$out"
 }
 
-if [ ! -x "$dev/ow2/binl64/wcc" ]; then
+# SKIP_OW=1: only fetch FreeDOS (CI gets Open Watcom from setup-watcom).
+if [ -z "${SKIP_OW:-}" ] && [ ! -x "$dev/ow2/binl64/wcc" ]; then
   ow="$(fetch "$OW_URL")"
   rm -rf "$dev/ow2"
   mkdir -p "$dev/ow2"

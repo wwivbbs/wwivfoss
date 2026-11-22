@@ -3,34 +3,63 @@
  * Copyright 2026 WWIV Software Services
  * Licensed under the Apache License, Version 2.0 (see LICENSE).
  *
- * Contract between WWIVFOSS (DOS side) and the BBS (host side).
- *
- * DRAFT. Nothing here is implemented yet. The uart transport currently uses
- * a raw byte stream with carrier on the DCD line; see docs/design.md
- * ("Open questions") for why an in-band control channel may be needed.
+ * Contract between WWIVFOSS (DOS side) and the BBS (host side), and the
+ * private INT 14h API between a resident copy of WWIVFOSS and WWIVFOSS -U.
  */
 #ifndef WWIVFOSS_FOSS_PROTOCOL_H
 #define WWIVFOSS_FOSS_PROTOCOL_H
 
-#define WWIVFOSS_PROTOCOL_VERSION 0
+#define WWIVFOSS_PROTOCOL_VERSION 1
 
 /*
- * Named pipe names used by the OS/2 pipe transport. These match what wwivd
- * already creates: data on WWIV<node>, control on WWIV<node>C.
+ * In-band line control for the uart transport (WWIVFOSS -E).
+ *
+ * Some emulators (QEMU) don't drop DCD when the socket to the BBS closes,
+ * so carrier and DTR travel in the byte stream instead. The framing is the
+ * same as DOSBox-X's nullmodem in non-transparent mode, so one BBS-side
+ * implementation works with both:
+ *
+ *   FF FF      a literal FF data byte
+ *   FF nn      line state from the other end (nn != FF):
+ *                bit 0  RTS
+ *                bit 1  DTR   (BBS -> DOS: 0 means the caller hung up;
+ *                              DOS -> BBS: 0 means the door hung up)
+ *                bit 2  break
+ *
+ * Both directions start out as RTS|DTR (03h). With -E, the BBS sends FF 00
+ * before closing the socket when the caller drops, and hangs up the caller
+ * when it receives a line state with DTR clear.
+ */
+#define WWIVFOSS_INBAND_ESCAPE     0xFF
+#define WWIVFOSS_LINE_RTS          0x01
+#define WWIVFOSS_LINE_DTR          0x02
+#define WWIVFOSS_LINE_BREAK        0x04
+
+/*
+ * Private INT 14h API, used by WWIVFOSS -U to find and unload a resident
+ * copy. Handled before the port check, so DX is ignored.
+ *
+ *   AH = 7Eh, BX = 5746h ('WF'), AL = subfunction
+ *
+ *   AL = 00h  query
+ *             returns AX = 5746h, BX = resident PSP segment,
+ *                     CX = resident code segment,
+ *                     DX = hardware interrupt vector in use (0 if none)
+ *   AL = 01h  shut down: close the transport, restore INT 14h
+ *             returns AX = 5746h. The caller then frees the PSP block.
+ */
+#define WWIVFOSS_API_FUNC          0x7E
+#define WWIVFOSS_API_MAGIC         0x5746
+#define WWIVFOSS_API_QUERY         0x00
+#define WWIVFOSS_API_SHUTDOWN      0x01
+
+/*
+ * Named pipe names used by the OS/2 pipe transport (planned). These match
+ * what wwivd already creates: data on WWIV<node>, control on WWIV<node>C.
  */
 #define WWIVFOSS_PIPE_DATA_FMT     "\\PIPE\\WWIV%d"
 #define WWIVFOSS_PIPE_CONTROL_FMT  "\\PIPE\\WWIV%dC"
-
-/* Control codes sent on the control pipe. */
 #define WWIVFOSS_CTL_DISCONNECT    'D'  /* host -> DOS: caller hung up */
 #define WWIVFOSS_CTL_HANGUP        'H'  /* DOS -> host: door lowered DTR */
-
-/*
- * Reserved: optional in-band control framing for the uart transport, to be
- * enabled only when both ends are WWIVFOSS-aware (negotiated at startup).
- * An escape byte followed by a command byte would carry carrier, DTR and
- * break, with the escape byte doubled for literal data.
- */
-#define WWIVFOSS_INBAND_ESCAPE     0x00  /* placeholder, not final */
 
 #endif /* WWIVFOSS_FOSS_PROTOCOL_H */

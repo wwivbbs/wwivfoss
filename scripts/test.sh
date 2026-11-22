@@ -2,12 +2,19 @@
 # End-to-end test: run "WWIVFOSS -P1 FOSTEST" in an emulator whose COM1 is
 # connected to a TCP socket, with scripts/bbs.py playing the BBS.
 #
-#   scripts/test.sh [EMULATOR] [SCENARIO]
+#   scripts/test.sh [EMULATOR] [SCENARIO] [MODE]
+#   scripts/test.sh all
 #
-#   EMULATOR  qemu (FreeDOS 1.4 floppy, default) or dosbox (DOSBox-X)
+#   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -E (in-band line control,
+#                     QEMU doesn't drop DCD when the socket closes)
+#             dosbox  DOSBox-X; raw stream, DCD follows the socket
 #   SCENARIO  echo    type text, Q quits; expect errorlevel 0 (default)
-#             hangup  caller drops mid-door; expect errorlevel 2 (carrier lost)
-#             all     every scenario on every emulator
+#             hangup  caller drops mid-door; expect errorlevel 2
+#             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
+#                     (qemu only: needs in-band framing to observe DTR)
+#   MODE      runner    WWIVFOSS [opts] FOSTEST (default)
+#             resident  WWIVFOSS -L, FOSTEST, WWIVFOSS -U, then FOSTEST
+#                       again, which must find no FOSSIL
 #
 #   KEEP=1     keep .devenv/test/ for inspection
 #   TIMEOUT=n  seconds per step (default 120)
@@ -21,22 +28,39 @@ dev="$root/.devenv"
 timeout_secs="${TIMEOUT:-120}"
 emu="${1:-qemu}"
 scenario="${2:-echo}"
+mode="${3:-runner}"
 
-if [ "$emu" = all ] || [ "$scenario" = all ]; then
+if [ "$emu" = all ]; then
   rc=0
-  for e in qemu dosbox; do
-    for s in echo hangup; do
-      echo "=== $e / $s"
-      "$0" "$e" "$s" || rc=1
+  failed=""
+  for m in runner resident; do
+    for combo in qemu:echo qemu:hangup qemu:dtr dosbox:echo dosbox:hangup; do
+      e="${combo%%:*}"
+      s="${combo##*:}"
+      echo "=== $e / $s / $m"
+      if ! "$0" "$e" "$s" "$m"; then
+        rc=1
+        failed="$failed $e/$s/$m"
+      fi
     done
   done
+  if [ "$rc" = 0 ]; then
+    echo "ALL PASSED"
+  else
+    echo "FAILED:$failed"
+  fi
   exit $rc
 fi
 
 case "$scenario" in
   echo) want_errorlevel=0 ;;
   hangup) want_errorlevel=2 ;;
+  dtr) want_errorlevel=3 ;;
   *) echo "Unknown scenario: $scenario" >&2; exit 1 ;;
+esac
+case "$mode" in
+  runner|resident) ;;
+  *) echo "Unknown mode: $mode" >&2; exit 1 ;;
 esac
 
 need() {
@@ -47,15 +71,24 @@ need() {
 }
 need python3 python3
 case "$emu" in
-  qemu) need qemu-system-i386 qemu-system-x86; need mcopy mtools ;;
-  dosbox) need dosbox-x dosbox-x ;;
+  qemu)
+    need qemu-system-i386 qemu-system-x86; need mcopy mtools
+    framing=inband
+    flags="-P1 -E"
+    ;;
+  dosbox)
+    need dosbox-x dosbox-x
+    framing=raw
+    flags="-P1"
+    [ "$scenario" != dtr ] || { echo "dtr needs in-band framing (qemu)" >&2; exit 1; }
+    ;;
   *) echo "Unknown emulator: $emu" >&2; exit 1 ;;
 esac
 for f in "$root/dos/wwivfoss.exe" "$root/tools/fostest/fostest.exe"; do
   [ -f "$f" ] || { echo "Missing $f (run scripts/build.sh)" >&2; exit 1; }
 done
 
-work="$dev/test/$emu-$scenario"
+work="$dev/test/$emu-$scenario-$mode"
 rm -rf "$work"
 mkdir -p "$work"
 port=$((20000 + RANDOM % 20000))
@@ -81,49 +114,85 @@ screenshot() {
 }
 
 fail() {
-  echo "FAIL ($emu/$scenario): $*" >&2
+  echo "FAIL ($emu/$scenario/$mode): $*" >&2
   screenshot
-  if [ "$emu" = qemu ] && [ -n "${img:-}" ]; then
-    mcopy -o -i "$img" ::/LOG.TXT "$work/" 2>/dev/null || true
-  fi
-  if [ -f "$work/LOG.TXT" ]; then
-    echo "--- door console (LOG.TXT) ---" >&2
-    tr -d '\r' < "$work/LOG.TXT" >&2
-  fi
+  fetch_results
+  for f in LOADLOG.TXT LOG.TXT UNLOG.TXT UNLOAD.TXT AFTER.TXT; do
+    if [ -f "$work/$f" ]; then
+      echo "--- $f ---" >&2
+      tr -d '\r' < "$work/$f" >&2
+    fi
+  done
   [ -f "$work/screen.png" ] && echo "Screenshot: $work/screen.png" >&2
   exit 1
 }
 
-# The batch file both emulators run. It records the errorlevel in
-# RESULT.TXT, and under QEMU also runs QEXITn.COM, which writes n to the
-# isa-debug-exit port so QEMU powers off.
+# Copies the result files out of the QEMU floppy image (DOSBox-X writes
+# them straight to $work).
+fetch_results() {
+  if [ "$emu" = qemu ] && [ -n "${img:-}" ]; then
+    for f in LOG.TXT RESULT.TXT UNLOAD.TXT AFTER.TXT LOADLOG.TXT UNLOG.TXT; do
+      mcopy -o -i "$img" "::/$f" "$work/" 2>/dev/null || true
+    done
+  fi
+}
+
+# The batch file both emulators run. FOSTEST's errorlevel goes to
+# RESULT.TXT; in resident mode the unload result goes to UNLOAD.TXT. Under
+# QEMU, QEXIT.COM writes to the isa-debug-exit port to power off.
 write_test_bat() {
-  local drive="$1" qexit="$2"
+  local d="$1" qemu="$2"
   {
     echo "@echo off"
-    if [ "$qexit" = 1 ]; then
+    if [ "$qemu" = 1 ]; then
       # FreeCOM needs COMSPEC to find itself for COMMAND /C.
       echo "set COMSPEC=A:\\FREEDOS\\BIN\\COMMAND.COM"
     fi
-    echo "${drive}\\WWIVFOSS.EXE -P1 ${drive}\\FOSTEST.EXE > ${drive}\\LOG.TXT"
+    if [ "$mode" = resident ]; then
+      echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
+      echo "if errorlevel 1 goto loadfail"
+      echo "${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
+    else
+      echo "${d}\\WWIVFOSS.EXE $flags ${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
+    fi
     for n in 3 2 1; do
       echo "if errorlevel $n goto e$n"
     done
     for n in 0 1 2 3; do
       echo ":e$n"
-      echo "echo $n > ${drive}\\RESULT.TXT"
-      if [ "$qexit" = 1 ]; then
-        echo "${drive}\\QEXIT$n.COM"
-      fi
-      echo "goto done"
+      echo "echo $n > ${d}\\RESULT.TXT"
+      echo "goto after"
     done
+    echo ":after"
+    if [ "$mode" = resident ]; then
+      echo "${d}\\WWIVFOSS.EXE -U > ${d}\\UNLOG.TXT"
+      echo "if errorlevel 1 goto unloadfail"
+      # With the FOSSIL gone, FOSTEST must exit 1 ("no FOSSIL").
+      echo "${d}\\FOSTEST.EXE > ${d}\\AFTER.TXT"
+      echo "if errorlevel 2 goto stillthere"
+      echo "if errorlevel 1 goto gone"
+      echo ":stillthere"
+      echo "echo still-resident > ${d}\\UNLOAD.TXT"
+      echo "goto done"
+      echo ":gone"
+      echo "echo ok > ${d}\\UNLOAD.TXT"
+      echo "goto done"
+      echo ":unloadfail"
+      echo "echo unload-failed > ${d}\\UNLOAD.TXT"
+      echo "goto done"
+      echo ":loadfail"
+      echo "echo load-failed > ${d}\\UNLOAD.TXT"
+    fi
     echo ":done"
+    if [ "$qemu" = 1 ]; then
+      echo "${d}\\QEXIT.COM"
+    fi
   } | sed 's/$/\r/' > "$work/TEST.BAT"
 }
 
 # Start the BBS side first; the emulator connects to it, as with WWIV's
 # listen-socket exec mode.
-python3 "$root/scripts/bbs.py" "$port" "$scenario" "$timeout_secs" "$work/ready" &
+python3 "$root/scripts/bbs.py" "$port" "$scenario" "$framing" "$timeout_secs" "$work/ready" &
 bbs_pid=$!
 for _ in $(seq 1 50); do
   [ -f "$work/ready" ] && break
@@ -131,19 +200,18 @@ for _ in $(seq 1 50); do
 done
 [ -f "$work/ready" ] || fail "BBS harness did not start"
 
-echo "Running $emu / $scenario (BBS listening on 127.0.0.1:$port)"
+echo "Running $emu / $scenario / $mode (WWIVFOSS $flags; BBS on 127.0.0.1:$port)"
 case "$emu" in
   qemu)
     img="$work/test.img"
     cp "$dev/freedos/boot.img" "$img"
     printf 'FILES=20\r\nBUFFERS=10\r\nSHELL=\\FREEDOS\\BIN\\COMMAND.COM \\FREEDOS\\BIN /E:1024 /P=\\TEST.BAT\r\n' \
       > "$work/FDCONFIG.SYS"
-    for n in 0 1 2 3; do
-      printf "\\xb0\\x0${n}\\xe6\\xf4\\xcd\\x20" > "$work/QEXIT${n}.COM"
-    done
+    # QEXIT.COM: mov al,0 / out 0F4h,al / int 20h -> QEMU powers off.
+    printf '\xb0\x00\xe6\xf4\xcd\x20' > "$work/QEXIT.COM"
     write_test_bat "A:" 1
     mcopy -o -i "$img" "$work/FDCONFIG.SYS" "$work/TEST.BAT" \
-      "$work"/QEXIT?.COM "$root/dos/wwivfoss.exe" \
+      "$work/QEXIT.COM" "$root/dos/wwivfoss.exe" \
       "$root/tools/fostest/fostest.exe" ::/
     qemu-system-i386 \
       -M pc -m 16 \
@@ -199,8 +267,10 @@ fi
 wait "$emu_pid" || true
 emu_pid=""
 
-if [ "$emu" = qemu ]; then
-  mcopy -o -i "$img" ::/LOG.TXT ::/RESULT.TXT "$work/" 2>/dev/null || true
+fetch_results
+if [ "$mode" = resident ]; then
+  unload="$(tr -d '\r\n ' < "$work/UNLOAD.TXT" 2>/dev/null || echo missing)"
+  [ "$unload" = ok ] || fail "resident mode: $unload"
 fi
 [ -f "$work/RESULT.TXT" ] || fail "no RESULT.TXT; the test batch file did not finish"
 errorlevel="$(tr -dc '0-9' < "$work/RESULT.TXT")"
@@ -208,5 +278,8 @@ if [ "$errorlevel" != "$want_errorlevel" ]; then
   fail "errorlevel $errorlevel, wanted $want_errorlevel"
 fi
 echo "ok - door exited with errorlevel $errorlevel"
+if [ "$mode" = resident ]; then
+  echo "ok - WWIVFOSS -U unloaded; FOSTEST then found no FOSSIL"
+fi
 passed=1
-echo "PASS ($emu/$scenario)"
+echo "PASS ($emu/$scenario/$mode)"

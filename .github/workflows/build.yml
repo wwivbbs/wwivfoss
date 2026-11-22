@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: open-watcom/setup-watcom@v0
+        with:
+          version: "2.0"
+
+      - name: Build WWIVFOSS
+        working-directory: dos
+        run: wmake
+
+      - name: Build FOSTEST
+        working-directory: tools/fostest
+        run: wmake
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wwivfoss-dos
+          path: |
+            dos/wwivfoss.exe
+            dos/wwivfoss.map
+            tools/fostest/fostest.exe
+
+  # Planned: boot FreeDOS under QEMU with COM1 on a socket, run
+  # "WWIVFOSS -P1 FOSTEST", drive it over the socket and check the echo and
+  # exit code. See docs/design.md ("Testing").

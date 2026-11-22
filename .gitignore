@@ -1,0 +1,7 @@
+*.obj
+*.exe
+*.map
+*.err
+*.lk1
+*.sym
+.devenv/

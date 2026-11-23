@@ -34,3 +34,14 @@ write_chain() {
     "C:\\WWIV\\DATA\\" "NODE1.LOG" "19200" "1" "WWIVFOSS Test BBS" "The Sysop" \
     "43200" "10" "0" "0" "0" "0" "8N1" "19200" "1" "N" "N" "N" "0" "0" > "$1/CHAIN.TXT"
 }
+
+# DOOR.SYS (52 lines) in WWIV's field order (bbs/dropfile.cpp
+# CreateDoorSysDropFile).
+write_doorsys() {
+  printf "$(drop_fmt)" "COM1" "19200" "8" "1" "19200" "Y" "N" "N" "N" \
+    "Rush Fan" "Testville, CA" "555-555-1212" "Rush Fan" "X" "100" "10" \
+    "11/22/26" "3600" "60" "GR" "25" "N" "1,2,3" "0" "12/31/99" "1" "Y" \
+    "0" "0" "0" "0" "01/01/80" "C:\\WWIV\\DATA\\" "C:\\WWIV\\GFILES\\" \
+    "The Sysop" "RUSH FAN" "00:01" "Y" "N" "N" "7" "0" "11/22/26" "12:00" \
+    "00:01" "99" "0" "0" "0" "" "0" "0" > "$1/DOOR.SYS"
+}

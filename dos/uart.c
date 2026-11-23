@@ -56,6 +56,7 @@
 #define MCR_DTR   0x01
 #define MCR_RTS   0x02
 #define MCR_OUT2  0x08
+#define MCR_LOOP  0x10
 #define FCR_ENABLE_CLEAR 0xC7      /* enable, clear rx+tx, 14 byte trigger */
 #define FCR_CLEAR_TX     0xC5
 #define FIFO_DEPTH 16
@@ -105,6 +106,28 @@ static volatile unsigned long __far* const bios_ticks =
 
 static int uart_carrier(void);
 
+/*
+ * -E: make a hangup visible to doors that read the UART's modem status
+ * register directly instead of asking the FOSSIL (Food Fight, among others).
+ * Emulators like QEMU hold DCD high forever, so the in-band hangup would
+ * otherwise only reach doors that use FOSSIL status (03h). In loopback mode
+ * a 16550 mirrors its outputs onto its modem status inputs, with DCD
+ * following OUT2; loopback with OUT2 low therefore reads as carrier lost.
+ * Undone when the BBS raises DTR again and whenever the port is closed.
+ * Called with interrupts off (from the ISR).
+ */
+static void apply_remote_lines(void) {
+  unsigned char mcr = (unsigned char)inp(base + MCR);
+  if (remote_lines & WWIVFOSS_LINE_DTR) {
+    if (mcr & MCR_LOOP) {
+      outp(base + MCR, (mcr & ~MCR_LOOP) | MCR_OUT2);
+    }
+  } else if (!(mcr & MCR_LOOP)) {
+    outp(base + MCR, (mcr | MCR_LOOP) & ~MCR_OUT2);
+  }
+  msr_cache = (unsigned char)inp(base + MSR);
+}
+
 /* Move bytes from the TX ring into the UART. Interrupts must be off. */
 static void tx_fill(void) {
   unsigned n;
@@ -129,6 +152,7 @@ static void rx_drain(void) {
         rx_escape = 0;
         if (c != WWIVFOSS_INBAND_ESCAPE) {
           remote_lines = c;          /* FF nn: line state, not data */
+          apply_remote_lines();
           continue;
         }
       } else if (c == WWIVFOSS_INBAND_ESCAPE) {

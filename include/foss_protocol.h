@@ -29,6 +29,12 @@
  * Both directions start out as RTS|DTR (03h). With -E, the BBS sends FF 00
  * before closing the socket when the caller drops, and hangs up the caller
  * when it receives a line state with DTR clear.
+ *
+ * Doors that read the UART's modem status register directly (rather than
+ * FOSSIL status) would never see the hangup, since the emulator holds DCD
+ * high. So when DTR from the BBS goes low, WWIVFOSS puts the UART in
+ * loopback mode with OUT2 low, which makes DCD read low; DTR going high
+ * again, or closing the port, restores normal mode.
  */
 #define WWIVFOSS_INBAND_ESCAPE     0xFF
 #define WWIVFOSS_LINE_RTS          0x01

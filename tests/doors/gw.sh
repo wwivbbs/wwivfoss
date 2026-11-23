@@ -8,7 +8,9 @@
 # /wwiv/doors).
 
 DOOR_SRC="${WWIVFOSS_DOORS:-/wwiv/doors}/gw"
-DOOR_CMD="WAR.EXE /C 9600 1 60 Rush Fan"
+# Reads WWIV's CHAIN.TXT (/W path), as on a WWIV BBS. The drop drive
+# differs by mode, so door_dropfiles writes GWAR.BAT with the right path.
+DOOR_CMD="GWAR.BAT"
 DOOR_EXPECT="Global War v2.7"
 # Global War exits 0 after the caller drops carrier.
 DOOR_HANGUP_ERRORLEVEL=0
@@ -25,4 +27,11 @@ door_prepare() {
   local cfg
   cfg="$(ls "$dir" | grep -i '^war\.cfg$')"
   sed -i '9s/^[ADFU] /F /' "$dir/$cfg"
+}
+
+# Per run: DOORDIR DROPDIR DRIVE.
+door_dropfiles() {
+  local dir="$1" drop="$2" drive="$3"
+  write_chain "$drop"
+  printf '%s\r\n' "@echo off" "WAR.EXE /W $drive\\CHAIN.TXT" > "$dir/GWAR.BAT"
 }

@@ -66,8 +66,9 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       on); not reproduced since. Watch for it.
 - [ ] `-I0` (no idling) still stalls with a stray byte at door start (RX
       overrun logged by DOSBox-X).
-- [ ] Sysop guide (`docs/wwiv.md`): chain settings, `dosdoor.sh`, per-door
-      setup (drop file on T:, FOSSIL on), troubleshooting.
+- [x] Sysop guide (`docs/wwiv.md`): DOSBox-X setup, chains, per-door
+      recipes, troubleshooting, QEMU and WWIV's "WWIVFOSS (Socket Port)"
+      mode. Still missing: a ready-made QEMU launcher (like dosdoor.sh).
 - WWIV issues filed: wwivbbs/wwiv#1735 (doors SIGKILLed on hangup), #1736
   (bridge latency/throughput), #1737 (leftover input forwarded to doors),
   #1738 (LF drop files on Linux), #1752 (in-band line control for -E

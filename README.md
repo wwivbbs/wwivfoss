@@ -173,6 +173,10 @@ sudo umount /mnt
 
 ### With WWIV
 
+**Sysop guide: [docs/wwiv.md](docs/wwiv.md)**: installing, adding doors as
+WWIV chains, per-door recipes (LORD, Global War, Food Fight, OpenDoors and
+DoorDriver doors), troubleshooting, and QEMU.
+
 `configs/wwiv/dosdoor.sh` runs a DOS door under DOSBox-X with WWIVFOSS from
 a WWIV chain whose exec mode is `SOCK_PORT`, for example:
 

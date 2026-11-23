@@ -94,15 +94,14 @@ resident TSR (`-L` then `-U`).
 `doors` runs each definition in `tests/doors/` under both emulators and both
 modes, and once more through `configs/wwiv/dosdoor.sh` exactly as a WWIV
 chain runs it (`dosdoor` mode: drop files written with LF line endings in a
-node temp directory mounted as T:): Global War, LORD 4.06 (also with stray input at startup), OpenDoors'
-VOTEDOS, DoorDriver's Jungle, Food Fight 4.6, and a Zmodem round trip
-through FDSZ. Each
-run checks the door's output arrives, that it notices the hangup and exits,
-and (via `WWIVFOSS -S` call counts) that it really used the FOSSIL. Doors
-are downloaded from a BBS archive mirror into `.devenv/` on first use;
-Global War comes from a local install (`WWIVFOSS_DOORS`, default
-`/wwiv/doors`) and is skipped if it isn't there. Door binaries are never
-committed, and CI runs only `all`.
+node temp directory mounted as T:): Global War, LORD 4.06 (also with stray
+input at startup), OpenDoors' VOTEDOS, DoorDriver's Jungle, Food Fight 4.6,
+and a Zmodem round trip through FDSZ. Each run checks the door's output
+arrives, that it notices the hangup and exits, and (via `WWIVFOSS -S` call
+counts) that it really used the FOSSIL. Doors are downloaded from a BBS
+archive mirror into `.devenv/` on first use; Global War comes from a local
+install (`WWIVFOSS_DOORS`, default `/wwiv/doors`) and is skipped if it isn't
+there. Door binaries are never committed, and CI runs only `all`.
 
 Single runs and other options:
 

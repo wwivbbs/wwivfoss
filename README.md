@@ -72,7 +72,7 @@ setup for both), python3 the BBS side of every test, lrzsz the Zmodem test.
 ### 2. Fetch the toolchain and build
 
 ```
-scripts/setup-dev.sh     # Open Watcom v2 + FreeDOS boot floppy into .devenv/
+scripts/setup-dev.sh     # Open Watcom v2, FreeDOS boot floppy, base C: disk
 scripts/build.sh         # dos/wwivfoss.exe, tools/fostest/fostest.exe
 ```
 
@@ -119,8 +119,52 @@ screenshot under `.devenv/test/` (QEMU).
 ### Interactive DOS
 
 `scripts/shell.sh` boots a FreeDOS shell in QEMU in your terminal, with the
-latest build on A: and COM1 on `localhost:2323` (connect with
-`nc localhost 2323` to be the caller).
+latest build on A:, a persistent hard disk as C:, and COM1 on
+`localhost:2323` (connect with `nc localhost 2323` to be the caller).
+
+```
+scripts/shell.sh                 # FreeDOS prompt
+scripts/shell.sh --door lord     # ...with LORD copied to C:\LORD, ready to run
+```
+
+`--door NAME` copies a door the tests have prepared (run
+`scripts/test.sh dosbox door:NAME` once first) along with its drop file and
+configuration, and prints the command to start it. Type `QUIT` in DOS to
+power off.
+
+### Disk images
+
+The DOS hard disks are ordinary raw images with an MBR and one FAT16
+partition starting at **byte offset 32256** (sector 63):
+
+| Image | Used by |
+|---|---|
+| `.devenv/freedos/c.img` | pristine 32 MB base, made by `scripts/setup-dev.sh` (`scripts/mkdisk.py`) |
+| `.devenv/shell-c.img` | `scripts/shell.sh`'s C:, kept between runs (`FRESH=1` resets it) |
+| `.devenv/test/qemu-*/c.img` | each QEMU door test's C:, a fresh copy of the base (`KEEP=1` keeps it) |
+
+Copy files in and out with mtools (no root needed), always with QEMU
+stopped, since two writers corrupt the file system:
+
+```
+mdir  -i .devenv/shell-c.img@@32256 ::/                 # list
+mdir  -i .devenv/shell-c.img@@32256 ::/LORD             # list a directory
+mcopy -i .devenv/shell-c.img@@32256 mydoor.zip ::/      # copy in
+mcopy -s -i .devenv/shell-c.img@@32256 mydoor ::/       # copy a directory in
+mcopy -i .devenv/shell-c.img@@32256 ::/LORD/LORD.DAT .  # copy out
+mmd   -i .devenv/shell-c.img@@32256 ::/NEWDIR           # make a directory
+mdel  -i .devenv/shell-c.img@@32256 ::/OLD.TXT          # delete
+```
+
+Or mount it as a regular file system (needs root):
+
+```
+sudo mount -o loop,offset=32256,uid=$(id -u),gid=$(id -g) .devenv/shell-c.img /mnt
+cp -r mydoor /mnt/           # ...work with /mnt as usual...
+sudo umount /mnt
+```
+
+`scripts/mkdisk.py IMAGE [SIZE_MB]` makes a new empty disk (up to 504 MB).
 
 ### With WWIV
 

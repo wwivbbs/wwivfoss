@@ -8,7 +8,9 @@
 #
 #   .devenv/ow2/       Open Watcom v2 snapshot (Linux x64 host tools; on an
 #                      arm64 Linux host this needs Rosetta or qemu-user binfmt)
-#   .devenv/freedos/   FreeDOS 1.4 boot floppy, used by scripts/test.sh
+#   .devenv/freedos/   FreeDOS 1.4 boot floppy (boot.img), and an empty 32 MB
+#                      FAT16 hard disk (c.img) that QEMU door tests and
+#                      scripts/shell.sh copy for their C: drive
 #
 # Also needed from the system for testing (see scripts/test.sh --help):
 #   sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3 lrzsz
@@ -61,6 +63,14 @@ if [ ! -f "$dev/freedos/boot.img" ]; then
     exit 1
   fi
   cp "$img" "$dev/freedos/boot.img"
+fi
+
+if [ ! -f "$dev/freedos/c.img" ]; then
+  if command -v mformat >/dev/null 2>&1; then
+    python3 "$root/scripts/mkdisk.py" "$dev/freedos/c.img"
+  else
+    echo "Skipping .devenv/freedos/c.img: needs mtools (sudo apt-get install -y mtools)" >&2
+  fi
 fi
 
 echo "Development environment ready in $dev"

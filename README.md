@@ -29,9 +29,11 @@ WWIVFOSS -U                            unload the resident copy
 
   -P#   COM port for the uart transport (1-4, default 1)
   -E    In-band line control: carrier and DTR travel in the byte stream
-        (needed for QEMU; same framing as DOSBox-X's nullmodem)
-  -H#   With -E: the BBS sends a heartbeat (FF 03) every # seconds; 3 missed
-        heartbeats count as a hangup (the BBS crashed or went away)
+        (default; what WWIV's "WWIVFOSS (Socket Port)" mode speaks, needed
+        for QEMU). -E- turns it off for a raw stream: DOSBox-X through
+        dosdoor.sh, a real modem, telnet/nc
+  -H#   With -E: the BBS sends a heartbeat (FF 03) every # seconds (default
+        10); 3 missed heartbeats count as a hangup. -H0 turns it off
   -C    Force carrier detect on
   -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe
   -N#   Node number (used by the vdd and pipe transports)
@@ -42,9 +44,9 @@ WWIVFOSS -U                            unload the resident copy
 Examples:
 
 ```
-WWIVFOSS -P1 C:\DOORS\LORD\START.BAT 1      DOSBox-X, one door
-WWIVFOSS -P1 -E C:\DOORS\LORD\LORD.EXE      QEMU, one door
-WWIVFOSS -L -P1                              resident, for a DOS BBS
+WWIVFOSS -P1 -E- C:\DOORS\LORD\START.BAT 1  DOSBox-X, one door
+WWIVFOSS -P1 C:\DOORS\LORD\LORD.EXE         QEMU, one door
+WWIVFOSS -L -P1 -E-                          resident, for a DOS BBS
 ```
 
 `-U` refuses to unload if another program hooked INT 14h or the UART IRQ
@@ -52,9 +54,9 @@ after WWIVFOSS loaded, and leaves the memory allocated if any other vector
 still points into it.
 
 Carrier: under DOSBox-X, DCD follows the TCP connection, so the BBS just
-closes the socket when the caller hangs up. QEMU never drops DCD, so use
-`-E` there and have the BBS send `FF 00` before closing; the door lowering
-DTR arrives at the BBS as `FF 01`. See `include/foss_protocol.h`.
+closes the socket when the caller hangs up; run WWIVFOSS with `-E-` there.
+QEMU never drops DCD, so the default in-band line control (`-E`, with
+heartbeats) carries carrier and DTR instead. See `include/foss_protocol.h`.
 
 ## Building and testing
 

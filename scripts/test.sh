@@ -15,9 +15,9 @@
 #   scripts/test.sh dosbox door:lord          one door
 #   KEEP=1 scripts/test.sh qemu funcs         keep .devenv/test/ afterwards
 #
-#   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -E (in-band line control,
-#                     QEMU doesn't drop DCD when the socket closes)
-#             dosbox  DOSBox-X; raw stream, DCD follows the socket
+#   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS defaults (-E -H10: in-band
+#                     line control and heartbeats, QEMU doesn't drop DCD)
+#             dosbox  DOSBox-X; WWIVFOSS -E- (raw stream, DCD follows the socket)
 #             dosdoor doors only: run through configs/wwiv/dosdoor.sh exactly
 #                     as a WWIV SOCK_PORT chain does (drop files written
 #                     with LF in a node temp dir mounted as T:; runner mode;
@@ -177,12 +177,12 @@ case "$emu" in
   qemu)
     need qemu-system-i386 qemu-system-x86; need mcopy mtools
     framing=inband
-    flags="-P1 -E"
+    flags="-P1"          # -E -H10 are WWIVFOSS's defaults
     ;;
   dosbox)
     need dosbox-x dosbox-x
     framing=raw
-    flags="-P1"
+    flags="-P1 -E-"      # raw stream: DOSBox-X drops DCD itself
     [ "$scenario" != dtr ] || { echo "dtr needs in-band framing (qemu)" >&2; exit 1; }
     ;;
   dosdoor)

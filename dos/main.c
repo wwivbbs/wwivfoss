@@ -32,7 +32,10 @@
 #define EXIT_HOOKED     6   /* -U: another program hooked our vectors */
 #define EXIT_FREE       7   /* -U: couldn't free the resident memory */
 
-struct options g_opts = {1, 'U', 0, 0, 1, 0, NULL, 0};
+/* Defaults: COM1, uart, in-band line control (-E) with 10 s heartbeats
+   (-H10), which is what WWIV's "WWIVFOSS (Socket Port)" mode speaks. */
+struct options g_opts = {1, 'U', 0, 0, 1, 1, NULL, 10};
+static int heartbeat_given;
 const struct transport* g_transport;
 
 static void usage(void) {
@@ -44,10 +47,11 @@ static void usage(void) {
     "\r\n"
     "Options:\r\n"
     "  -P#   COM port for the uart transport (1-4, default 1)\r\n"
-    "  -E    In-band line control (carrier/DTR in the byte stream;\r\n"
-    "        needed for QEMU, see foss_protocol.h)\r\n"
-    "  -H#   With -E: the BBS sends FF 03 every # seconds; no data for\r\n"
-    "        3 periods counts as a hangup (BBS crashed or gone)\r\n"
+    "  -E    In-band line control: carrier/DTR in the byte stream (default;\r\n"
+    "        see foss_protocol.h). -E- turns it off for a raw stream:\r\n"
+    "        DOSBox-X via dosdoor.sh, a real modem, plain telnet/nc\r\n"
+    "  -H#   With -E: the BBS sends FF 03 every # seconds (default 10);\r\n"
+    "        no data for 3 periods counts as a hangup. -H0 turns it off\r\n"
     "  -C    Force carrier detect on\r\n"
     "  -Sfile Write FOSSIL call counts to file when the door exits\r\n"
     "        (runner) or on -U (resident)\r\n"
@@ -300,9 +304,9 @@ int main(int argc, char** argv) {
       const char* val = arg + 2;
       switch (toupper((unsigned char)arg[1])) {
       case 'P': g_opts.port = atoi(val); break;
-      case 'E': g_opts.inband = 1; break;
+      case 'E': g_opts.inband = (*val != '-'); break;
       case 'C': g_opts.force_carrier = 1; break;
-      case 'H': g_opts.heartbeat = atoi(val); break;
+      case 'H': g_opts.heartbeat = atoi(val); heartbeat_given = 1; break;
       case 'S': g_opts.stats_file = val; break;
       case 'T': g_opts.transport = *val; break;
       case 'N': g_opts.node = atoi(val); break;
@@ -331,7 +335,7 @@ int main(int argc, char** argv) {
     strcat(command, arg);
   }
 
-  if (g_opts.heartbeat > 0 && !g_opts.inband) {
+  if (heartbeat_given && g_opts.heartbeat > 0 && !g_opts.inband) {
     fprintf(stderr, "Warning: -H needs -E (in-band line control); ignored.\r\n");
   }
 

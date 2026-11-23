@@ -20,9 +20,10 @@
 # C:\NAME. In DOS:
 #   C:
 #   CD \NAME
-#   WWIVFOSS -P1 -E <door command>     (see tests/doors/NAME.sh)
-# and connect as the caller with "nc localhost 2323". In-band framing (-E)
-# isn't decoded by nc; leave -E off and use -C to force carrier instead.
+#   WWIVFOSS -P1 -E- -C <door command>     (see tests/doors/NAME.sh)
+# and connect as the caller with "nc localhost 2323". nc is a raw stream, so
+# turn WWIVFOSS's default in-band line control off (-E-) and force carrier
+# (-C).
 #
 # Getting files in and out of C: from Linux (with QEMU stopped):
 #   mdir  -i .devenv/shell-c.img@@32256 ::/
@@ -58,7 +59,7 @@ while [ $# -gt 0 ]; do
         [ -f "$here/.devenv/doors/$name/.prepared" ] && mark="*"
         cmd="$(bash -c ". '$here/scripts/doorlib.sh'; . '$def'; echo \"\$DOOR_CMD\"")"
         printf '  %s %-11s %s\n' "$mark" "$name" "$(sed -n '1s/^# *//p' "$def")"
-        printf '                start with: WWIVFOSS -P1 -C %s\n' "$cmd"
+        printf '                start with: WWIVFOSS -P1 -E- -C %s\n' "$cmd"
       done
       echo
       echo "Prepare a door that isn't marked: scripts/test.sh dosbox door:NAME"
@@ -100,7 +101,7 @@ if [ ! -f "$img" ] || [ -n "${FRESH:-}" ]; then
   # Skip the installer: boot to a prompt with the FreeDOS environment set.
   printf 'FILES=30\r\nBUFFERS=20\r\nLASTDRIVE=Z\r\nSHELL=\\FREEDOS\\BIN\\COMMAND.COM \\FREEDOS\\BIN /E:2048 /P=\\SHELL.BAT\r\n' \
     > "$tmp/FDCONFIG.SYS"
-  printf '@echo off\r\ncall \\FDAUTO.BAT ENV_ONLY\r\nset COMSPEC=A:\\FREEDOS\\BIN\\COMMAND.COM\r\nset PATH=A:\\;%%PATH%%\r\necho.\r\necho WWIVFOSS dev shell. COM1 is on host port '"$port"'. Type QUIT to power off.\r\necho Try: WWIVFOSS -P1 FOSTEST\r\necho.\r\n' \
+  printf '@echo off\r\ncall \\FDAUTO.BAT ENV_ONLY\r\nset COMSPEC=A:\\FREEDOS\\BIN\\COMMAND.COM\r\nset PATH=A:\\;%%PATH%%\r\necho.\r\necho WWIVFOSS dev shell. COM1 is on host port '"$port"'. Type QUIT to power off.\r\necho Try: WWIVFOSS -P1 -E- -C FOSTEST\r\necho.\r\n' \
     > "$tmp/SHELL.BAT"
   # QUIT.COM: write to QEMU's isa-debug-exit port to power off.
   printf '\xb0\x00\xe6\xf4\xcd\x20' > "$tmp/QUIT.COM"
@@ -138,7 +139,7 @@ for name in "${doors[@]}"; do
     if declare -F door_dropfiles >/dev/null; then
       door_dropfiles "$stage" "$stage" "C:\\$dosname"
     fi
-    echo "Door $name: in DOS, C: then CD \\$dosname, then WWIVFOSS -P1 -C $DOOR_CMD"
+    echo "Door $name: in DOS, C: then CD \\$dosname, then WWIVFOSS -P1 -E- -C $DOOR_CMD"
   )
   mmd -i "$disk@@32256" "::/$dosname" 2>/dev/null || true
   mcopy -o -s -i "$disk@@32256" "$stage"/* "::/$dosname/"

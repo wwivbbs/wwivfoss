@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs a DOS door under DOSBox-X with WWIVFOSS, for a WWIV chain whose exec
 # mode is SOCK_PORT (WWIV listens on a local port, passed as %Z, and DOSBox-X
-# connects its COM1 to it).
+# connects its COM1 to it). The stream is raw (DOSBox-X drops DCD when the
+# socket closes), so WWIVFOSS runs with -E- (no in-band line control).
 #
 #   dosdoor.sh PORT TEMPDIR DOORDIR COMMAND [ARGS...]
 #
@@ -70,7 +71,7 @@ mount t "$temp"
 mount w "$here"
 c:
 cd \\
-W:\\WWIVFOSS.EXE -P1 ${DOSDOOR_FLAGS:-} $*
+W:\\WWIVFOSS.EXE -P1 -E- ${DOSDOOR_FLAGS:-} $*
 exit
 CONF
 

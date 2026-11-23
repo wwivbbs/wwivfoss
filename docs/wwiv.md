@@ -51,7 +51,10 @@ door in [`tests/doors/`](../tests/doors).
    ```
 
    `dosdoor.sh` mounts its own directory as W: and runs `W:\WWIVFOSS.EXE`,
-   so the two must stay side by side.
+   so the two must stay side by side. It runs WWIVFOSS with `-E-`: the
+   DOSBox-X path is a raw stream (DOSBox-X drops carrier itself), while
+   WWIVFOSS defaults to the in-band line control that QEMU needs. Update
+   `WWIVFOSS.EXE` and `dosdoor.sh` together.
 
 ## Add a door
 
@@ -210,7 +213,10 @@ DTR travel in the byte stream:
   the caller hangs up, giving the door 10 seconds to exit.
 - A door that lowers DTR returns the caller to the BBS.
 
-Run the door with `WWIVFOSS -E -H10` (`-H` at least `WWIVFOSS_HEARTBEAT`).
+Run the door with plain `WWIVFOSS`: in-band line control (`-E`) and a
+10-second heartbeat (`-H10`) are its defaults. If you raise
+`WWIVFOSS_HEARTBEAT` above 10, raise `-H` to match (`-H` must be at least
+`WWIVFOSS_HEARTBEAT`).
 WWIVFOSS then reports a hang-up to the door both through FOSSIL status and
 by switching the UART into loopback so doors that read the UART directly
 (Food Fight, for one) see carrier drop. Three missed heartbeats count as a
@@ -229,14 +235,15 @@ QEMU's COM1 is a socket, either way round:
 What's missing is a ready-made launcher like `dosdoor.sh`. One would boot
 FreeDOS, attach the door's disk image (`scripts/mkdisk.py` makes one; see
 "Disk images" in the README for copying files in and out), copy the node's
-drop files from `%I` into a small image for DOS, and run
-`WWIVFOSS -P1 -E -H10` with the door. Keep in mind a disk image can only be
+drop files from `%I` into a small image for DOS, and run `WWIVFOSS -P1`
+(defaults `-E -H10`) with the door. Keep in mind a disk image can only be
 used by one QEMU at a time, so a door shared by several nodes needs one
 image per node or `Multi user` off. See `scripts/test.sh` (QEMU door runs)
 for a working example of all the pieces.
 
 You can also run a classic FOSSIL (BNU, X00) under either emulator. It
-works for play, but under QEMU it never sees a hang-up.
+works for play, but under QEMU it never sees a hang-up. Likewise WWIVFOSS
+with `-E-`, under QEMU, behaves like a classic FOSSIL.
 
 ## Status of WWIV's side
 

@@ -12,7 +12,9 @@
 #define WWIVFOSS_PROTOCOL_VERSION 1
 
 /*
- * In-band line control for the uart transport (WWIVFOSS -E).
+ * In-band line control for the uart transport (WWIVFOSS -E, the default
+ * since WWIV speaks it; -E- turns it off for raw streams such as DOSBox-X
+ * via dosdoor.sh, which drops DCD by itself).
  *
  * Some emulators (QEMU) don't drop DCD when the socket to the BBS closes,
  * so carrier and DTR travel in the byte stream instead. The framing is the

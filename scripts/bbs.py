@@ -249,7 +249,9 @@ except socket.timeout:
 conn.settimeout(1)
 door = Door(conn)
 door.start_call()
-heartbeat = int(os.environ.get("HEARTBEAT") or 0)
+# Like WWIV, send heartbeats to in-band doors (every 10 s, WWIVFOSS's -H
+# default) unless HEARTBEAT says otherwise; HEARTBEAT=0 turns them off.
+heartbeat = int(os.environ.get("HEARTBEAT") or (10 if inband else 0))
 if heartbeat and inband:
     door.start_heartbeat(heartbeat)
 
@@ -360,6 +362,8 @@ elif scenario == "twocalls":
         print("   (not sending FF 03 on call 2)")
     else:
         door.start_call()
+        if heartbeat and inband:
+            door.start_heartbeat(heartbeat)
     door.expect("FOSTEST ready")
     print("ok - call 2: banner received; the port recovered")
     door.send(b"hello\r")

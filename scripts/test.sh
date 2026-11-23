@@ -27,6 +27,10 @@
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
 #                     (qemu only: needs in-band framing to observe DTR)
 #             speed   32 KB each way through FOSSIL block I/O; prints KB/s
+#             deadbbs (qemu) WWIVFOSS -H2: the BBS stops heartbeats and goes
+#                     silent without closing; expect errorlevel 2 in ~6s
+#             hbidle  (qemu) -H2 with heartbeats running, idle past 6s; the
+#                     caller must not be dropped; expect errorlevel 0
 #             twocalls  (qemu, resident) call, hang up, call again: the second
 #                     call must work, i.e. the port recovers from a hangup
 #             funcs   FOSTEST self-tests: local functions, peek, purge,
@@ -77,8 +81,8 @@ if [ "$emu" = all ]; then
   rc=0
   failed=""
   for m in runner resident; do
-    for combo in qemu:echo qemu:hangup qemu:dtr qemu:funcs \
-                 dosbox:echo dosbox:hangup dosbox:funcs; do
+    for combo in qemu:echo qemu:hangup qemu:dtr qemu:funcs qemu:deadbbs \
+                 qemu:hbidle dosbox:echo dosbox:hangup dosbox:funcs; do
       e="${combo%%:*}"
       s="${combo##*:}"
       echo "=== $e / $s / $m"
@@ -112,9 +116,11 @@ if [ "$emu" = doors ]; then
       echo "=== door:$name: skipped ($src not found)"
       continue
     fi
+    emus="$(DOOR_EMUS=; . "$def"; echo "${DOOR_EMUS:-qemu dosbox dosdoor}")"
     for run in qemu:runner dosbox:runner qemu:resident dosbox:resident dosdoor:runner; do
       e="${run%%:*}"
       m="${run##*:}"
+      case " $emus " in *" $e "*) ;; *) continue ;; esac
       echo "=== $e / door:$name / $m"
       if ! "$0" "$e" "door:$name" "$m"; then
         rc=1
@@ -143,7 +149,8 @@ case "$scenario" in
     need_dosbox_for_prep=1
     want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
     ;;
-  echo|funcs|speed) want_errorlevel=0 ;;
+  echo|funcs|speed|hbidle) want_errorlevel=0 ;;
+  deadbbs) want_errorlevel=2 ;;
   twocalls)
     want_errorlevel=0  # call 2; call 1 must end with 2 (carrier lost)
     if [ "$emu" != qemu ] || [ "${mode:-runner}" != resident ]; then
@@ -186,6 +193,15 @@ case "$emu" in
     [ "$mode" = runner ] || { echo "dosdoor runs doors as a runner only" >&2; exit 1; }
     ;;
   *) echo "Unknown emulator: $emu (see $0 --help)" >&2; exit 1 ;;
+esac
+# Heartbeat scenarios: the BBS sends FF 03 every 2 s, WWIVFOSS -H2 watches.
+# A door definition with DOOR_HANGUP=silent gets the same.
+case "$scenario/${DOOR_HANGUP:-}" in
+  deadbbs/*|hbidle/*|*/silent)
+    [ "$emu" = qemu ] || { echo "$scenario needs in-band framing (qemu)" >&2; exit 1; }
+    flags="$flags -H2"
+    export HEARTBEAT=2
+    ;;
 esac
 # Extra WWIVFOSS options for experiments, e.g. WWIVFOSS_FLAGS=-I0.
 flags="$flags ${WWIVFOSS_FLAGS:-}"
@@ -361,6 +377,7 @@ if [ "$bbs_scenario" = zmodem ]; then
 fi
 export DOOR_EXPECT="${DOOR_EXPECT:-}"
 export DOOR_STRAY="${DOOR_STRAY:-}"
+export DOOR_HANGUP="${DOOR_HANGUP:-}"
 export DOOR_STRAY_WHEN="${DOOR_STRAY_WHEN:-}"
 export DOOR_MIN_BYTES="${DOOR_MIN_BYTES:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")

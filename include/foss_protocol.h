@@ -32,7 +32,12 @@
  *     WWIVFOSS keeps the UART in loopback until DTR comes back up, and a
  *     resident copy can't see a new connection any other way),
  *   - sends FF 00 (or FF 01) before closing the socket when the caller drops,
- *   - hangs up the caller when it receives a line state with DTR clear.
+ *   - hangs up the caller when it receives a line state with DTR clear,
+ *   - optionally sends FF 03 every N seconds as a heartbeat. With
+ *     WWIVFOSS -E -H<N>, no bytes from the BBS for 3*N seconds count as a
+ *     hangup (DTR low, as above), covering a BBS that dies without sending
+ *     FF 00. A timer tick (INT 1Ch) checks, so doors that never call the
+ *     FOSSIL for status see it too.
  *
  * Doors that read the UART's modem status register directly (rather than
  * FOSSIL status) would never see the hangup, since the emulator holds DCD
@@ -54,7 +59,8 @@
  *   AL = 00h  query
  *             returns AX = 5746h, BX = resident PSP segment,
  *                     CX = resident code segment,
- *                     DX = hardware interrupt vector in use (0 if none)
+ *                     DX = hardware interrupt vector in use (0 if none),
+ *                     SI = 1Ch if the timer tick is hooked (-H), else 0
  *   AL = 01h  shut down: close the transport, restore INT 14h
  *             returns AX = 5746h. The caller then frees the PSP block.
  */

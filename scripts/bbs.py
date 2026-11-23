@@ -24,6 +24,11 @@ SCENARIO against FOSTEST:
             on a new connection: FF 03, banner, echo, Q. Proves the port
             recovers after a hangup. TWOCALLS_SKIP_FF03=1 omits call 2's
             FF 03 (the test must then fail)
+    deadbbs (with HEARTBEAT=N) banner, echo, then heartbeats stop and the
+            BBS goes silent without closing; prints how long until the door
+            sees carrier loss (WWIVFOSS -H) and exits
+    hbidle  (with HEARTBEAT=N) idle past 3 heartbeat periods with
+            heartbeats running; the caller must not be dropped
     speed   32 KB each way with FOSTEST R/T; prints the throughput
     funcs   FOSTEST's self-tests: F (local functions), P (peek), X (purge),
             B (all 256 byte values both ways), K (keyboard, only with a
@@ -63,6 +68,8 @@ class Door:
 
     def __init__(self, conn):
         self.conn = conn
+        self.lock = threading.Lock()   # heartbeats come from another thread
+        self.beating = threading.Event()
         self.data = b""
         self.lines = LINE_RTS | LINE_DTR   # door's line state (DTR up)
         self._escape = False
@@ -130,16 +137,37 @@ class Door:
     def send(self, data):
         if inband:
             data = data.replace(b"\xff", b"\xff\xff")
-        self.conn.sendall(data)
+        with self.lock:
+            self.conn.sendall(data)
+
+    def start_heartbeat(self, seconds):
+        """Sends FF 03 every `seconds` until stop_heartbeat()."""
+        def beat():
+            while self.beating.is_set():
+                time.sleep(seconds)
+                if not self.beating.is_set():
+                    return
+                try:
+                    with self.lock:
+                        self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
+                except OSError:
+                    return
+        self.beating.set()
+        threading.Thread(target=beat, daemon=True).start()
+
+    def stop_heartbeat(self):
+        self.beating.clear()
 
     def start_call(self):
         """With in-band framing, the BBS reports RTS|DTR up first on every
         connection (foss_protocol.h): after a hangup WWIVFOSS keeps the UART
         in loopback until it sees DTR again."""
         if inband:
-            self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
+            with self.lock:
+                self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
 
     def hang_up(self):
+        self.stop_heartbeat()
         if inband:
             self.conn.sendall(bytes([ESC, LINE_RTS]))   # DTR low
         self.conn.close()
@@ -221,6 +249,9 @@ except socket.timeout:
 conn.settimeout(1)
 door = Door(conn)
 door.start_call()
+heartbeat = int(os.environ.get("HEARTBEAT") or 0)
+if heartbeat and inband:
+    door.start_heartbeat(heartbeat)
 
 # Stray input as the door starts, e.g. the Enter a caller typed after
 # picking the door, which WWIV forwards to it the moment the door connects
@@ -269,6 +300,23 @@ if scenario == "door":
     if min_bytes:
         door.wait_for(lambda: len(door.data) >= min_bytes, f"{min_bytes} bytes")
         print(f"ok - door sent at least {min_bytes} bytes")
+    if os.environ.get("DOOR_HANGUP") == "silent":
+        # The BBS dies: heartbeats stop, the socket stays open. Only
+        # WWIVFOSS -H can notice; wait for the door to exit.
+        door.stop_heartbeat()
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 3 * max(heartbeat, 1) + 20:
+            try:
+                chunk = door.conn.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                chunk = b""
+            if not chunk:
+                print(f"ok - BBS went silent; door hung up after "
+                      f"{time.monotonic() - t0:.1f}s")
+                sys.exit(0)
+        fail("the door didn't hang up after the BBS went silent")
     door.hang_up()
     print(f"ok - caller hung up ({'DTR low in-band, ' if inband else ''}"
           "socket closed)")
@@ -319,6 +367,45 @@ elif scenario == "twocalls":
     door.send(b"Q")
     door.expect("BYE")
     print("ok - call 2: echo and BYE")
+    time.sleep(1)
+elif scenario == "deadbbs":
+    if not (heartbeat and inband):
+        fail("deadbbs needs HEARTBEAT=N and inband framing")
+    door.stop_heartbeat()
+    t0 = time.monotonic()
+    print(f"ok - heartbeats stopped; BBS silent (socket left open)")
+    # The door should see carrier loss after ~3 heartbeats and exit; the
+    # emulator then powers off and the connection closes.
+    limit = 3 * heartbeat + 20
+    while True:
+        if time.monotonic() - t0 > limit:
+            fail(f"the door didn't hang up within {limit}s of the BBS going silent")
+        try:
+            chunk = door.conn.recv(4096)
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        if not chunk:
+            break
+        door._feed(chunk)
+    elapsed = time.monotonic() - t0
+    if elapsed < 3 * heartbeat - 1:
+        fail(f"hung up after {elapsed:.1f}s, before 3 heartbeat periods")
+    print(f"ok - door hung up {elapsed:.1f}s after the BBS went silent "
+          f"(heartbeat {heartbeat}s)")
+elif scenario == "hbidle":
+    if not (heartbeat and inband):
+        fail("hbidle needs HEARTBEAT=N and inband framing")
+    idle = 3 * heartbeat + 4
+    time.sleep(idle)
+    print(f"ok - idled {idle}s with heartbeats running")
+    door.send(b"still here\r")
+    door.expect("still here")
+    print("ok - not hung up: echo still works")
+    door.send(b"Q")
+    door.expect("BYE")
+    door.stop_heartbeat()
     time.sleep(1)
 elif scenario == "speed":
     door.send(b"R")

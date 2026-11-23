@@ -101,6 +101,8 @@ static unsigned char rx_escape;              /* saw FF, waiting for next */
  */
 static volatile unsigned char msr_cache;
 static unsigned long msr_tick;
+/* -H: BIOS tick when the last byte (data or line state) came from the BBS. */
+static volatile unsigned long last_rx_tick;
 static volatile unsigned long __far* const bios_ticks =
     (volatile unsigned long __far*)0x0040006CL;
 
@@ -147,6 +149,7 @@ static void rx_drain(void) {
       rx_lost = 1;
     }
     c = (unsigned char)inp(base + RBR);
+    last_rx_tick = *bios_ticks;
     if (g_opts.inband) {
       if (rx_escape) {
         rx_escape = 0;
@@ -246,6 +249,7 @@ static int uart_open(void) {
   tx_busy = 0;
   remote_lines = WWIVFOSS_LINE_RTS | WWIVFOSS_LINE_DTR;
   rx_escape = 0;
+  last_rx_tick = *bios_ticks;
   rx_drain();
   rx_head = rx_tail = 0;
   outp(base + MCR, MCR_DTR | MCR_RTS | MCR_OUT2);
@@ -425,6 +429,32 @@ static unsigned char uart_irq_vector(void) {
   return irq_vector;
 }
 
+/*
+ * -E -H<N>: called from the timer interrupt (INT 1Ch). If nothing at all has
+ * come from the BBS for 3 heartbeats, the BBS is gone (crashed, killed, or
+ * the connection died without an in-band hangup): treat it as DTR low, the
+ * same as an FF 01 from the BBS. The next byte with DTR set (a heartbeat or
+ * the FF 03 that starts a call) brings the line back.
+ */
+static void uart_tick(void) {
+  unsigned long now, limit;
+  if (!g_opts.inband || g_opts.heartbeat <= 0 ||
+      !(remote_lines & WWIVFOSS_LINE_DTR)) {
+    return;
+  }
+  now = *bios_ticks;
+  if (now < last_rx_tick) {
+    last_rx_tick = now;  /* the BIOS tick count wrapped at midnight */
+    return;
+  }
+  /* 3 heartbeats at 18.2 ticks per second. */
+  limit = (unsigned long)g_opts.heartbeat * 55;
+  if (now - last_rx_tick > limit) {
+    remote_lines &= (unsigned char)~WWIVFOSS_LINE_DTR;
+    apply_remote_lines();
+  }
+}
+
 const struct transport uart_transport = {
   "uart",
   uart_open,
@@ -441,4 +471,5 @@ const struct transport uart_transport = {
   uart_purge_rx,
   uart_purge_tx,
   uart_irq_vector,
+  uart_tick,
 };

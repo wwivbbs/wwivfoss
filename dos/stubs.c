@@ -35,12 +35,12 @@ const struct transport vdd_transport = {
   "vdd",
   vdd_open, stub_close, stub_zero, stub_none, stub_none, stub_put,
   stub_zero, stub_false, stub_false, stub_false, stub_set, stub_close,
-  stub_close, stub_vec,
+  stub_close, stub_vec, NULL,
 };
 
 const struct transport pipe_transport = {
   "pipe",
   pipe_open, stub_close, stub_zero, stub_none, stub_none, stub_put,
   stub_zero, stub_false, stub_false, stub_false, stub_set, stub_close,
-  stub_close, stub_vec,
+  stub_close, stub_vec, NULL,
 };

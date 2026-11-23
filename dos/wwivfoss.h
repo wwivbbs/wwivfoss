@@ -17,6 +17,7 @@ struct options {
   int  idle;           /* release timeslices while doors poll */
   int  inband;         /* -E: line state travels in the byte stream */
   const char* stats_file;  /* -S: write FOSSIL call counts here */
+  int  heartbeat;      /* -H: seconds between BBS heartbeats (with -E), 0 off */
 };
 
 extern struct options g_opts;
@@ -44,6 +45,7 @@ struct transport {
   void     (*purge_rx)(void);
   void     (*purge_tx)(void);
   unsigned char (*irq_vector)(void); /* hooked hardware vector, or 0 */
+  void     (*tick)(void);         /* called on every timer tick (-H), or NULL */
 };
 
 extern const struct transport uart_transport;
@@ -57,6 +59,7 @@ void fossil_install(void);
 void fossil_remove(void);
 const char* fossil_ident(void);
 unsigned fossil_entry_segment(void);
+int fossil_tick_hooked(void);
 struct wwivfoss_stats;
 const struct wwivfoss_stats* fossil_stats(void);
 

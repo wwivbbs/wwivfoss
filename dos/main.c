@@ -32,7 +32,7 @@
 #define EXIT_HOOKED     6   /* -U: another program hooked our vectors */
 #define EXIT_FREE       7   /* -U: couldn't free the resident memory */
 
-struct options g_opts = {1, 'U', 0, 0, 1, 0, NULL};
+struct options g_opts = {1, 'U', 0, 0, 1, 0, NULL, 0};
 const struct transport* g_transport;
 
 static void usage(void) {
@@ -46,6 +46,8 @@ static void usage(void) {
     "  -P#   COM port for the uart transport (1-4, default 1)\r\n"
     "  -E    In-band line control (carrier/DTR in the byte stream;\r\n"
     "        needed for QEMU, see foss_protocol.h)\r\n"
+    "  -H#   With -E: the BBS sends FF 03 every # seconds; no data for\r\n"
+    "        3 periods counts as a hangup (BBS crashed or gone)\r\n"
     "  -C    Force carrier detect on\r\n"
     "  -Sfile Write FOSSIL call counts to file when the door exits\r\n"
     "        (runner) or on -U (resident)\r\n"
@@ -200,7 +202,7 @@ static int load_resident(void) {
 
 static int unload_resident(void) {
   union REGS r;
-  unsigned psp, seg, vec;
+  unsigned psp, seg, vec, tickvec;
   void (__interrupt __far* v)(void);
 
   if (!resident_api(WWIVFOSS_API_QUERY, &r)) {
@@ -210,6 +212,7 @@ static int unload_resident(void) {
   psp = r.x.bx;
   seg = r.x.cx;
   vec = r.x.dx;
+  tickvec = r.x.si;
 
   /* Like BNU: refuse if something hooked our vectors after we loaded. */
   v = _dos_getvect(0x14);
@@ -221,6 +224,13 @@ static int unload_resident(void) {
     v = _dos_getvect(vec);
     if (FP_SEG(v) != seg) {
       printf("Can't unload: INT %02Xh was hooked by another program.\r\n", vec);
+      return EXIT_HOOKED;
+    }
+  }
+  if (tickvec) {
+    v = _dos_getvect(tickvec);
+    if (FP_SEG(v) != seg) {
+      printf("Can't unload: INT %02Xh was hooked by another program.\r\n", tickvec);
       return EXIT_HOOKED;
     }
   }
@@ -292,6 +302,7 @@ int main(int argc, char** argv) {
       case 'P': g_opts.port = atoi(val); break;
       case 'E': g_opts.inband = 1; break;
       case 'C': g_opts.force_carrier = 1; break;
+      case 'H': g_opts.heartbeat = atoi(val); break;
       case 'S': g_opts.stats_file = val; break;
       case 'T': g_opts.transport = *val; break;
       case 'N': g_opts.node = atoi(val); break;
@@ -318,6 +329,10 @@ int main(int argc, char** argv) {
       strcat(command, " ");
     }
     strcat(command, arg);
+  }
+
+  if (g_opts.heartbeat > 0 && !g_opts.inband) {
+    fprintf(stderr, "Warning: -H needs -E (in-band line control); ignored.\r\n");
   }
 
   if (load + unload + (first != 0) != 1) {

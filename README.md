@@ -30,6 +30,8 @@ WWIVFOSS -U                            unload the resident copy
   -P#   COM port for the uart transport (1-4, default 1)
   -E    In-band line control: carrier and DTR travel in the byte stream
         (needed for QEMU; same framing as DOSBox-X's nullmodem)
+  -H#   With -E: the BBS sends a heartbeat (FF 03) every # seconds; 3 missed
+        heartbeats count as a hangup (the BBS crashed or went away)
   -C    Force carrier detect on
   -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe
   -N#   Node number (used by the vdd and pipe transports)
@@ -82,7 +84,7 @@ scripts/build.sh         # dos/wwivfoss.exe, tools/fostest/fostest.exe
 TCP socket, with `scripts/bbs.py` playing the BBS on the other end.
 
 ```
-scripts/test.sh all      # FOSTEST matrix: 15 runs, ~5 minutes (what CI runs)
+scripts/test.sh all      # FOSTEST matrix: 19 runs, ~6 minutes (what CI runs)
 scripts/test.sh doors    # every real door: 35 runs, ~25 minutes
 ```
 
@@ -90,7 +92,9 @@ scripts/test.sh doors    # every real door: 35 runs, ~25 minutes
 functions, peek, purge, all 256 byte values, keyboard) under QEMU (`-E`
 in-band line control) and DOSBox-X, each with WWIVFOSS as a runner and as a
 resident TSR (`-L` then `-U`), plus a two-calls test (resident under QEMU:
-call, hang up, call again) proving the port recovers after a hangup.
+call, hang up, call again) proving the port recovers after a hangup, and
+heartbeat tests (`-H`): a BBS that goes silent gets the caller dropped, an
+idle caller with heartbeats running doesn't.
 
 `doors` runs each definition in `tests/doors/` under both emulators and both
 modes, and once more through `configs/wwiv/dosdoor.sh` exactly as a WWIV

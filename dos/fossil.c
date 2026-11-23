@@ -33,6 +33,15 @@ void __interrupt __far int14_handler(union INTPACK r);
 #pragma aux int14_handler "*";
 
 static intvec_t old_int14;
+static intvec_t old_int1c;
+static int tick_hooked;
+
+/* -H: user timer tick (18.2/s); lets the transport notice a silent BBS even
+   while a door reads the UART directly instead of calling the FOSSIL. */
+static void __interrupt __far tick_handler(void) {
+  g_transport->tick();
+  _chain_intr(old_int1c);
+}
 static int installed;
 static volatile int in_handler;
 static unsigned empty_polls;
@@ -223,6 +232,7 @@ void __interrupt __far int14_handler(union INTPACK r) {
       r.w.bx = _psp;
       r.w.cx = fossil_entry_segment();
       r.w.dx = g_transport->irq_vector();
+      r.w.si = tick_hooked ? 0x1C : 0;
     } else if (r.h.al == WWIVFOSS_API_STATS) {
       r.w.ax = WWIVFOSS_API_MAGIC;
       r.w.es = FP_SEG((struct wwivfoss_stats __far*)&stats);
@@ -416,8 +426,15 @@ void __interrupt __far int14_handler(union INTPACK r) {
 void fossil_install(void) {
   old_int14 = _dos_getvect(0x14);
   _dos_setvect(0x14, (intvec_t)int14_entry);
+  if (g_opts.heartbeat > 0 && g_opts.inband && g_transport->tick) {
+    old_int1c = _dos_getvect(0x1C);
+    _dos_setvect(0x1C, tick_handler);
+    tick_hooked = 1;
+  }
   installed = 1;
 }
+
+int fossil_tick_hooked(void) { return tick_hooked; }
 
 void fossil_remove(void) {
   if (!installed) {
@@ -430,5 +447,9 @@ void fossil_remove(void) {
    * pointing into freed memory.
    */
   _dos_setvect(0x14, old_int14);
+  if (tick_hooked) {
+    _dos_setvect(0x1C, old_int1c);
+    tick_hooked = 0;
+  }
   installed = 0;
 }

@@ -95,10 +95,11 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 
 ## Robustness
 
-- [ ] **Heartbeat (`-H#`)** for QEMU: the BBS sends `FF 03` periodically and
-      WWIVFOSS drops carrier if nothing arrives for a few periods, covering a
-      BBS that dies without sending `FF 00`. Test by killing the harness.
-      wwivbbs/wwivfoss#1 (driver), wwivbbs/wwiv#1753 (BBS).
+- [x] **Heartbeat (`-H#`)**: no bytes from the BBS for 3 heartbeats (FF 03)
+      count as a hangup; an INT 1Ch timer checks, so doors that read the
+      UART directly see it too. Tests: `deadbbs` (hangs up after ~6 s with
+      -H2), `hbidle` (not dropped while idle), `door:foodfite-dead`.
+      wwivbbs/wwivfoss#1. BBS side: wwivbbs/wwiv#1753.
 - [x] **`FF 03` on every connection (`-E`)**: documented as required in
       `foss_protocol.h`; `bbs.py` sends it on every in-band connection; the
       `twocalls` test (qemu, resident: call, hang up, call again) passes,

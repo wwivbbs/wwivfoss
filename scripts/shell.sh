@@ -47,8 +47,21 @@ doors=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help)
-      # Print the header comment above as help.
+      # Print the header comment above as help, then the doors.
       awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+      here="$(cd "$(dirname "$0")/.." && pwd)"
+      echo
+      echo "Doors for --door (from tests/doors/; * = prepared, ready to copy):"
+      for def in "$here"/tests/doors/*.sh; do
+        name="$(basename "$def" .sh)"
+        mark=" "
+        [ -f "$here/.devenv/doors/$name/.prepared" ] && mark="*"
+        cmd="$(bash -c ". '$here/scripts/doorlib.sh'; . '$def'; echo \"\$DOOR_CMD\"")"
+        printf '  %s %-11s %s\n' "$mark" "$name" "$(sed -n '1s/^# *//p' "$def")"
+        printf '                start with: WWIVFOSS -P1 -C %s\n' "$cmd"
+      done
+      echo
+      echo "Prepare a door that isn't marked: scripts/test.sh dosbox door:NAME"
       exit 0
       ;;
     --door)

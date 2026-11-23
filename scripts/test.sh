@@ -20,9 +20,12 @@
 #                     drop DCD)
 #             dosbox  DOSBox-X; WWIVFOSS -E- (raw stream, DCD follows the socket)
 #             dosdoor doors only: run through configs/wwiv/dosdoor.sh exactly
-#                     as a WWIV SOCK_PORT chain does (drop files written
-#                     with LF in a node temp dir mounted as T:; runner mode;
-#                     the door's errorlevel isn't checked)
+#                     as a WWIV "WWIVFOSS (Socket Port)" chain does (in-band
+#                     framing and heartbeats; drop files written with LF in a
+#                     node temp dir mounted as T:; runner mode; the door's
+#                     errorlevel isn't checked)
+#             dosdoor-raw  the same with dosdoor.sh -r, as a "Listen Socket
+#                     Port" chain does (raw stream)
 #   SCENARIO  echo    type text, Q quits; expect errorlevel 0 (default)
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
@@ -117,8 +120,9 @@ if [ "$emu" = doors ]; then
       echo "=== door:$name: skipped ($src not found)"
       continue
     fi
-    emus="$(DOOR_EMUS=; . "$def"; echo "${DOOR_EMUS:-qemu dosbox dosdoor}")"
-    for run in qemu:runner dosbox:runner qemu:resident dosbox:resident dosdoor:runner; do
+    emus="$(DOOR_EMUS=; . "$def"; echo "${DOOR_EMUS:-qemu dosbox dosdoor dosdoor-raw}")"
+    for run in qemu:runner dosbox:runner qemu:resident dosbox:resident \
+               dosdoor:runner dosdoor-raw:runner; do
       e="${run%%:*}"
       m="${run##*:}"
       case " $emus " in *" $e "*) ;; *) continue ;; esac
@@ -186,9 +190,12 @@ case "$emu" in
     flags="-P1 -E-"      # raw stream: DOSBox-X drops DCD itself
     [ "$scenario" != dtr ] || { echo "dtr needs in-band framing (qemu)" >&2; exit 1; }
     ;;
-  dosdoor)
+  dosdoor|dosdoor-raw)
     need dosbox-x dosbox-x
-    framing=raw
+    # dosdoor: WWIV's "WWIVFOSS (Socket Port)" mode (framed, heartbeats);
+    # dosdoor-raw: "Listen Socket Port" (dosdoor.sh -r).
+    framing=inband
+    [ "$emu" = dosdoor-raw ] && framing=raw
     flags=""
     [ -n "$door" ] || { echo "dosdoor runs doors only (door:NAME)" >&2; exit 1; }
     [ "$mode" = runner ] || { echo "dosdoor runs doors as a runner only" >&2; exit 1; }
@@ -475,11 +482,13 @@ EOF
       > "$work/emulator.log" 2>&1 &
     emu_pid=$!
     ;;
-  dosdoor)
+  dosdoor|dosdoor-raw)
     # Laid out like a WWIV install: dosdoor.sh and WWIVFOSS.EXE together
     # (mounted as W:), the door directory (C:), and a node temp directory
     # holding LF drop files (T:), which WWIV passes as %I.
     mkdir -p "$work/w" "$work/d" "$work/temp"
+    raw_opt=""
+    [ "$emu" = dosdoor-raw ] && raw_opt="-r"
     cp "$root/configs/wwiv/dosdoor.sh" "$work/w/dosdoor.sh"
     cp "$root/dos/wwivfoss.exe" "$work/w/WWIVFOSS.EXE"
     cp -r "$cache"/. "$work/d"/
@@ -489,7 +498,7 @@ EOF
     # shellcheck disable=SC2086  # DOOR_CMD is split into words, as WWIV does
     DOSDOOR_ECHO="${DOOR_DOSDOOR_ECHO:-}" \
     DOSDOOR_FLAGS="-ST:\\STATS.TXT ${WWIVFOSS_FLAGS:-}" DOSDOOR_LOG="$work/doslog" \
-      "$work/w/dosdoor.sh" "$port" "$work/temp" "$work/d" $DOOR_CMD \
+      "$work/w/dosdoor.sh" ${raw_opt:-} "$port" "$work/temp" "$work/d" $DOOR_CMD \
       > "$work/emulator.log" 2>&1 &
     emu_pid=$!
     ;;
@@ -513,7 +522,7 @@ wait "$emu_pid" || true
 emu_pid=""
 
 fetch_results
-if [ "$emu" = dosdoor ]; then
+if [ "$emu" = dosdoor ] || [ "$emu" = dosdoor-raw ]; then
   # dosdoor.sh doesn't report the door's errorlevel; WWIVFOSS wrote its
   # call counts to T:\STATS.TXT.
   for f in "$work/temp"/*; do

@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
-# Runs a DOS door under DOSBox-X with WWIVFOSS, for a WWIV chain whose exec
-# mode is SOCK_PORT (WWIV listens on a local port, passed as %Z, and DOSBox-X
-# connects its COM1 to it). The stream is raw (DOSBox-X drops DCD when the
-# socket closes), so WWIVFOSS runs with -E- (no in-band line control).
+# Runs a DOS door under DOSBox-X with WWIVFOSS for a WWIV chain. WWIV
+# listens on a local port (%Z) and DOSBox-X connects its COM1 to it.
 #
-#   dosdoor.sh PORT TEMPDIR DOORDIR COMMAND [ARGS...]
+#   dosdoor.sh [-r|--raw] PORT TEMPDIR DOORDIR COMMAND [ARGS...]
 #
-# Example chain command line (wwivconfig > Chains, exec mode SOCK_PORT):
+# Match the chain's exec mode (ChainEdit, E) Exec Mode):
+#
+#   "WWIVFOSS (Socket Port)"   (recommended) no option. WWIV escapes FF bytes,
+#                              sends line state and heartbeats in-band, and
+#                              gives the door time to exit when the caller
+#                              hangs up. WWIVFOSS runs with -E -H10.
+#   "Listen Socket Port"       -r / --raw. A plain byte stream (also for older
+#                              WWIV, or other BBS software). WWIVFOSS runs
+#                              with -E-; carrier comes from DOSBox-X dropping
+#                              DCD when the socket closes.
+#
+# Using the wrong one breaks things: without -r on a raw stream, an FF byte
+# from the caller is taken as line state (a stray hang-up); with -r on the
+# WWIVFOSS mode, its heartbeats (FF 03) reach the door as data (03 is
+# Ctrl-C).
+#
+# Example chain command lines:
 #
 #   /wwiv/doors/dosdoor.sh %Z %I /wwiv/doors/lord LORD.EXE %N /DREW
+#   /wwiv/doors/dosdoor.sh -r %Z %I /wwiv/doors/lord LORD.EXE %N /DREW
 #
 # Inside DOS:
 #   C:  the door's directory (DOORDIR); COMMAND runs from C:\
@@ -19,7 +34,8 @@
 #
 # Environment:
 #   DOSDOOR_DOSBOX   DOSBox-X binary (default: dosbox-x)
-#   DOSDOOR_FLAGS    extra WWIVFOSS options (e.g. -S for call statistics)
+#   DOSDOOR_FLAGS    extra WWIVFOSS options (e.g. -S for call statistics,
+#                    or -H<n> if WWIVFOSS_HEARTBEAT in wwiv.ini is over 10)
 #   DOSDOOR_CONF     extra DOSBox-X config file merged in (e.g. [cpu] cycles)
 #   DOSDOOR_ECHO=1   echo the commands on the DOSBox-X screen (debugging;
 #                    note it makes DOSBox-X service the UART more slowly)
@@ -28,8 +44,21 @@
 #                    DOSBox-X's output (dosbox.log)
 set -euo pipefail
 
-if [ $# -lt 4 ] || [ "$1" = -h ] || [ "$1" = --help ]; then
+usage() {
   awk 'NR > 1 && /^#/ {sub(/^# ?/, ""); print; next} NR > 1 {exit}' "$0"
+}
+
+# In-band line control and WWIV's heartbeats unless -r.
+line_flags="-E -H10"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -r|--raw) line_flags="-E-"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) break ;;
+  esac
+done
+if [ $# -lt 4 ]; then
+  usage
   exit 2
 fi
 
@@ -71,7 +100,7 @@ mount t "$temp"
 mount w "$here"
 c:
 cd \\
-W:\\WWIVFOSS.EXE -P1 -E- ${DOSDOOR_FLAGS:-} $*
+W:\\WWIVFOSS.EXE -P1 $line_flags ${DOSDOOR_FLAGS:-} $*
 exit
 CONF
 

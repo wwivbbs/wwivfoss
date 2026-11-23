@@ -23,10 +23,10 @@ the socket and the caller.
 
 | | **DOSBox-X** (recommended) | **QEMU** |
 |---|---|---|
-| WWIV chain exec mode | "Listen Socket Port" | "WWIVFOSS (Socket Port)" |
+| WWIV chain exec mode | "WWIVFOSS (Socket Port)" (or "Listen Socket Port" with `dosdoor.sh -r`) | "WWIVFOSS (Socket Port)" |
 | Door files | a normal directory on Linux | a DOS disk image |
 | Drop files reach DOS | the node's temp dir is mounted as T: | must be copied into an image |
-| Caller hang-up | the emulated carrier (DCD) drops when the socket closes | carried in-band (`WWIVFOSS -E`), with heartbeats |
+| Caller hang-up | in-band, and DCD drops when the socket closes | in-band only (`WWIVFOSS -E`), with heartbeats |
 | Ready-made launcher | `dosdoor.sh` | not yet (see [QEMU](#qemu)) |
 
 Use DOSBox-X unless you have a reason not to. Everything below except the
@@ -51,10 +51,7 @@ door in [`tests/doors/`](../tests/doors).
    ```
 
    `dosdoor.sh` mounts its own directory as W: and runs `W:\WWIVFOSS.EXE`,
-   so the two must stay side by side. It runs WWIVFOSS with `-E-`: the
-   DOSBox-X path is a raw stream (DOSBox-X drops carrier itself, and WWIV
-   doesn't escape `FF` bytes in "Listen Socket Port" mode), while WWIVFOSS
-   defaults to the in-band line control that QEMU needs.
+   so the two must stay side by side. Update them together.
 
 ## Add a door
 
@@ -103,8 +100,21 @@ From the BBS doors menu (`.`), press `*` for ChainEdit (or use the sysop
 |---|---|
 | A) Description | what callers see, e.g. `Legend of the Red Dragon` |
 | B) Filename | `/wwiv/doors/dosdoor.sh %Z %I /wwiv/doors/lord LORD.EXE %N /DREW` |
-| E) Exec Mode | **Listen Socket Port** |
+| E) Exec Mode | **WWIVFOSS (Socket Port)** |
 | H) Multi user | Yes only if the door supports several nodes at once |
+
+**Match the exec mode and `dosdoor.sh`:**
+
+| Exec mode | Filename starts | What WWIV sends the door |
+|---|---|---|
+| **WWIVFOSS (Socket Port)** (recommended) | `dosdoor.sh %Z ...` | `FF` escaped, line state and a heartbeat (`FF 03`) every 10 s mixed in; on hang-up the door gets 10 s to exit |
+| Listen Socket Port | `dosdoor.sh -r %Z ...` | a plain byte stream; on hang-up WWIV kills the emulator at once ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)) |
+
+Use "Listen Socket Port" with `-r` (or `--raw`) only on WWIV versions
+without the WWIVFOSS mode (5.9 and older). Mixing them up breaks things:
+without `-r`, a raw stream's `FF` bytes are taken as line state (a stray
+hang-up); with `-r`, the WWIVFOSS mode's heartbeats reach the door as data,
+and `03` is Ctrl-C.
 
 The Filename is the command line: `dosdoor.sh PORT TEMPDIR DOORDIR
 COMMAND...`. `%Z` is the listening port and `%I` the node's temp directory;
@@ -119,8 +129,10 @@ command in a batch file in the door directory.
 
 ## Door recipes
 
-Tested with WWIV's drop files through `dosdoor.sh`
-(`scripts/test.sh dosdoor door:NAME`).
+Tested with WWIV-style drop files through `dosdoor.sh` in both modes
+(`scripts/test.sh dosdoor door:NAME` and `dosdoor-raw door:NAME`). The
+command lines below are for "WWIVFOSS (Socket Port)"; add `-r` after
+`dosdoor.sh` for "Listen Socket Port".
 
 ### Legend of the Red Dragon 4.06
 
@@ -194,7 +206,9 @@ FOSSIL call counts to the node temp directory when the door exits.
 | The door runs but the caller sees nothing | The door uses its own UART code instead of the FOSSIL, or a different COM port. With `DOSDOOR_FLAGS=-S...`, a STATS.TXT showing no `01`/`0B`/`19` (transmit) calls confirms it. |
 | Garbage or a skipped prompt as the door starts | The Enter typed after picking the door is forwarded to it ([#1737](https://github.com/wwivbbs/wwiv/issues/1737)). Mostly harmless. |
 | Typing feels laggy, transfers are slow | WWIV's socket bridge polls every 100 ms ([#1736](https://github.com/wwivbbs/wwiv/issues/1736)). |
-| A caller who drops loses progress | With "Listen Socket Port", WWIV kills the emulator the moment the caller hangs up, before the door can save ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)). Ask callers to quit doors normally until that's fixed. |
+| A caller who drops loses progress | With "Listen Socket Port", WWIV kills the emulator the moment the caller hangs up, before the door can save ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)). Use "WWIVFOSS (Socket Port)", which gives the door 10 seconds. |
+| The door acts as if Ctrl-C or stray keys were pressed every 10 seconds | `dosdoor.sh -r` with the "WWIVFOSS (Socket Port)" mode: drop the `-r`. |
+| Random hang-ups, or garbage after a `ÿ` (character 255) | "Listen Socket Port" without `-r`: add `-r`, or switch the chain to "WWIVFOSS (Socket Port)". |
 
 `DOSDOOR_ECHO=1` echoes the commands on the DOSBox-X screen. Leave it off
 in production: with echo on, DOSBox-X services the serial port late enough

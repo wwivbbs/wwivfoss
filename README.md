@@ -88,7 +88,7 @@ TCP socket, with `scripts/bbs.py` playing the BBS on the other end.
 
 ```
 scripts/test.sh all      # FOSTEST matrix: 19 runs, ~6 minutes (what CI runs)
-scripts/test.sh doors    # every real door: 35 runs, ~25 minutes
+scripts/test.sh doors    # every real door: 43 runs, ~30 minutes
 ```
 
 `all` covers echo, hangup, DTR hangup and the FOSSIL self-tests (local
@@ -100,16 +100,18 @@ heartbeat tests (`-H`): a BBS that goes silent gets the caller dropped, an
 idle caller with heartbeats running doesn't.
 
 `doors` runs each definition in `tests/doors/` under both emulators and both
-modes, and once more through `configs/wwiv/dosdoor.sh` exactly as a WWIV
-chain runs it (`dosdoor` mode: drop files written with LF line endings in a
-node temp directory mounted as T:): Global War, LORD 4.06 (also with stray
-input at startup), OpenDoors' VOTEDOS, DoorDriver's Jungle, Food Fight 4.6,
-and a Zmodem round trip through FDSZ. Each run checks the door's output
-arrives, that it notices the hangup and exits, and (via `WWIVFOSS -S` call
-counts) that it really used the FOSSIL. Doors are downloaded from a BBS
-archive mirror into `.devenv/` on first use; Global War comes from a local
-install (`WWIVFOSS_DOORS`, default `/wwiv/doors`) and is skipped if it isn't
-there. Door binaries are never committed, and CI runs only `all`.
+modes, and through `configs/wwiv/dosdoor.sh` exactly as a WWIV chain runs
+it, once for each exec mode (`dosdoor`: "WWIVFOSS (Socket Port)", in-band
+with heartbeats; `dosdoor-raw`: "Listen Socket Port", `dosdoor.sh -r`), with
+drop files written with LF line endings in a node temp directory mounted as
+T:): Global War, LORD 4.06 (also with stray input at startup), OpenDoors'
+VOTEDOS, DoorDriver's Jungle, Food Fight 4.6, and a Zmodem round trip
+through FDSZ. Each run checks the door's output arrives, that it notices the
+hangup and exits, and (via `WWIVFOSS -S` call counts) that it really used
+the FOSSIL. Doors are downloaded from a BBS archive mirror into `.devenv/`
+on first use; Global War comes from a local install (`WWIVFOSS_DOORS`,
+default `/wwiv/doors`) and is skipped if it isn't there. Door binaries are
+never committed, and CI runs only `all`.
 
 Single runs and other options:
 

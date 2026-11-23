@@ -9,13 +9,19 @@ DOOR_EXPECT="LOADING THE REALM"
 DOOR_HANGUP_ERRORLEVEL=0
 
 door_prepare() {
-  local dir="$1"
-  unzip -q -o "$dir/LORD.ZIP" -d "$dir"
-  # NODE1.DAT is what LORDCFG's "Configure Nodes" writes; written directly
-  # here with: BBS type WWIV (CHAIN.TXT), drop file in C:\, FOSSIL on.
-  printf '%s\r\n' "**Seth Able's Node Data System, for node 1" \
-    "BBSNAME WWIVFOSS Test BBS" "BBSTYPE WWIV" ";COMPORT 0" "FOSSIL" \
-    "LOCKBAUD 0" "STATUS ON" "STATFORE 15" "STATBACK 1" ";NODE1" "NODIRECT" \
-    ";UNUSED" "BBSDROP C:\\" "NOOPEN" "NORESET" ";UNUSED" > "$dir/NODE1.DAT"
-  write_chain "$dir"
+  unzip -q -o "$1/LORD.ZIP" -d "$1"
+}
+
+# Per run: DOORDIR DROPDIR DRIVE (DROPDIR is DRIVE inside DOS).
+door_dropfiles() {
+  local dir="$1" drop="$2" drive="$3" n
+  # NODEn.DAT is what LORDCFG's "Configure Nodes" writes; written directly
+  # here: BBS type WWIV (CHAIN.TXT), drop file on DRIVE, FOSSIL on.
+  for n in 1 2; do
+    printf '%s\r\n' "**Seth Able's Node Data System, for node $n" \
+      "BBSNAME WWIVFOSS Test BBS" "BBSTYPE WWIV" ";COMPORT 0" "FOSSIL" \
+      "LOCKBAUD 0" "STATUS ON" "STATFORE 15" "STATBACK 1" ";NODE$n" "NODIRECT" \
+      ";UNUSED" "BBSDROP $drive\\" "NOOPEN" "NORESET" ";UNUSED" > "$dir/NODE$n.DAT"
+  done
+  write_chain "$drop"
 }

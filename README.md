@@ -83,7 +83,7 @@ TCP socket, with `scripts/bbs.py` playing the BBS on the other end.
 
 ```
 scripts/test.sh all      # FOSTEST matrix: 14 runs, ~5 minutes (what CI runs)
-scripts/test.sh doors    # every real door: 24 runs, ~15 minutes
+scripts/test.sh doors    # every real door: 30 runs, ~20 minutes
 ```
 
 `all` covers echo, hangup, DTR hangup and the FOSSIL self-tests (local
@@ -92,7 +92,9 @@ in-band line control) and DOSBox-X, each with WWIVFOSS as a runner and as a
 resident TSR (`-L` then `-U`).
 
 `doors` runs each definition in `tests/doors/` under both emulators and both
-modes: Global War, LORD 4.06 (also with stray input at startup), OpenDoors'
+modes, and once more through `configs/wwiv/dosdoor.sh` exactly as a WWIV
+chain runs it (`dosdoor` mode: drop files written with LF line endings in a
+node temp directory mounted as T:): Global War, LORD 4.06 (also with stray input at startup), OpenDoors'
 VOTEDOS, DoorDriver's Jungle, and a Zmodem round trip through FDSZ. Each
 run checks the door's output arrives, that it notices the hangup and exits,
 and (via `WWIVFOSS -S` call counts) that it really used the FOSSIL. Doors

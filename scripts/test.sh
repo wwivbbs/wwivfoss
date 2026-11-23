@@ -4,8 +4,8 @@
 #
 #   scripts/test.sh [EMULATOR] [SCENARIO] [MODE]
 #   scripts/test.sh all      FOSTEST matrix, 14 runs (what CI runs)
-#   scripts/test.sh doors    every door in tests/doors/, both emulators and
-#                            both modes (local only; not run in CI)
+#   scripts/test.sh doors    every door in tests/doors/: qemu and dosbox in
+#                            both modes, plus dosdoor (local only; not in CI)
 #   scripts/test.sh --help   this help
 #
 # Examples:
@@ -18,6 +18,10 @@
 #   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -E (in-band line control,
 #                     QEMU doesn't drop DCD when the socket closes)
 #             dosbox  DOSBox-X; raw stream, DCD follows the socket
+#             dosdoor doors only: run through configs/wwiv/dosdoor.sh exactly
+#                     as a WWIV SOCK_PORT chain does (drop files written
+#                     with LF in a node temp dir mounted as T:; runner mode;
+#                     the door's errorlevel isn't checked)
 #   SCENARIO  echo    type text, Q quits; expect errorlevel 0 (default)
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
@@ -101,14 +105,14 @@ if [ "$emu" = doors ]; then
       echo "=== door:$name: skipped ($src not found)"
       continue
     fi
-    for m in runner resident; do
-      for e in qemu dosbox; do
-        echo "=== $e / door:$name / $m"
-        if ! "$0" "$e" "door:$name" "$m"; then
-          rc=1
-          failed="$failed $e/door:$name/$m"
-        fi
-      done
+    for run in qemu:runner dosbox:runner qemu:resident dosbox:resident dosdoor:runner; do
+      e="${run%%:*}"
+      m="${run##*:}"
+      echo "=== $e / door:$name / $m"
+      if ! "$0" "$e" "door:$name" "$m"; then
+        rc=1
+        failed="$failed $e/door:$name/$m"
+      fi
     done
   done
   if [ "$rc" = 0 ]; then echo "ALL DOORS PASSED"; else echo "FAILED:$failed"; fi
@@ -126,17 +130,24 @@ dos_run() {
   rm -f "$conf"
 }
 
-# Drop files for door_prepare. The caller is Rush Fan on COM1 at 19200.
+# Drop files for door definitions. The caller is Rush Fan on COM1 at 19200.
+# Lines end in CR LF, or LF when DROP_EOL=lf (what WWIV writes on Linux,
+# wwivbbs/wwiv#1738; the dosdoor mode uses it so dosdoor.sh must convert).
+drop_fmt() {
+  # Literal escapes (echo doesn't expand them): $(...) would strip a real
+  # trailing newline, so let the caller's printf turn these into line ends.
+  if [ "${DROP_EOL:-crlf}" = lf ]; then echo '%s\n'; else echo '%s\r\n'; fi
+}
 
 # DORINFO1.DEF (RBBS/QuickBBS; OpenDoors, DoorDriver and most others).
 write_dorinfo() {
-  printf '%s\r\n' "WWIVFOSS TEST BBS" "THE" "SYSOP" "COM1" "19200 BAUD,N,8,1" "0" \
+  printf "$(drop_fmt)" "WWIVFOSS TEST BBS" "THE" "SYSOP" "COM1" "19200 BAUD,N,8,1" "0" \
     "RUSH" "FAN" "TESTVILLE" "1" "100" "60" > "$1/DORINFO1.DEF"
 }
 
 # CHAIN.TXT in WWIV's field order (bbs/dropfile.cpp create_chain_file).
 write_chain() {
-  printf '%s\r\n' "1" "RUSH FAN" "Rush Fan" "" "30" "M" "      0.00" "11/22/26" \
+  printf "$(drop_fmt)" "1" "RUSH FAN" "Rush Fan" "" "30" "M" "      0.00" "11/22/26" \
     "80" "25" "100" "0" "0" "1" "1" "   3600.00" "C:\\WWIV\\GFILES\\" \
     "C:\\WWIV\\DATA\\" "NODE1.LOG" "19200" "1" "WWIVFOSS Test BBS" "The Sysop" \
     "43200" "10" "0" "0" "0" "0" "8N1" "19200" "1" "N" "N" "N" "0" "0" > "$1/CHAIN.TXT"
@@ -185,6 +196,13 @@ case "$emu" in
     flags="-P1"
     [ "$scenario" != dtr ] || { echo "dtr needs in-band framing (qemu)" >&2; exit 1; }
     ;;
+  dosdoor)
+    need dosbox-x dosbox-x
+    framing=raw
+    flags=""
+    [ -n "$door" ] || { echo "dosdoor runs doors only (door:NAME)" >&2; exit 1; }
+    [ "$mode" = runner ] || { echo "dosdoor runs doors as a runner only" >&2; exit 1; }
+    ;;
   *) echo "Unknown emulator: $emu (see $0 --help)" >&2; exit 1 ;;
 esac
 # Extra WWIVFOSS options for experiments, e.g. WWIVFOSS_FLAGS=-I0.
@@ -206,7 +224,9 @@ if [ -n "$door" ]; then
     else
       cp -r "$DOOR_SRC"/. "$cache"/
     fi
-    door_prepare "$cache" || { echo "Preparing door $door failed" >&2; exit 1; }
+    if declare -F door_prepare >/dev/null; then
+      door_prepare "$cache" || { echo "Preparing door $door failed" >&2; exit 1; }
+    fi
     touch "$cache/.prepared"
   fi
 fi
@@ -250,6 +270,7 @@ fail() {
     fi
   done
   [ -f "$work/screen.png" ] && echo "Screenshot: $work/screen.png" >&2
+  [ -f "$work/doslog/dosbox.log" ] && echo "DOSBox-X log: $work/doslog/dosbox.log" >&2
   exit 1
 }
 
@@ -344,6 +365,7 @@ if [ "$bbs_scenario" = zmodem ]; then
 fi
 export DOOR_EXPECT="${DOOR_EXPECT:-}"
 export DOOR_STRAY="${DOOR_STRAY:-}"
+export DOOR_STRAY_WHEN="${DOOR_STRAY_WHEN:-}"
 export DOOR_MIN_BYTES="${DOOR_MIN_BYTES:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
 [ "$emu" = qemu ] && bbs_args+=("$monitor_port")
@@ -367,9 +389,18 @@ case "$emu" in
     door_drive=C:
     door_args=()
     if [ -n "$door" ]; then
-      mkdir -p "$work/c"
-      cp -r "$cache"/. "$work/c"/
-      door_args=(-drive "file=fat:rw:$work/c,format=raw,if=ide,index=1")
+      # The door goes on a real FAT image as the second floppy (B:, 2.88 MB).
+      # QEMU's fat:rw: folder drive is experimental and lost the last sector
+      # of a file a door wrote and then read back (FDSZ round trip).
+      door_drive=B:
+      mkdir -p "$work/b"
+      cp -r "$cache"/. "$work/b"/
+      if declare -F door_dropfiles >/dev/null; then
+        door_dropfiles "$work/b" "$work/b" B:
+      fi
+      mformat -C -f 2880 -v DOOR -i "$work/door.img" ::
+      mcopy -s -i "$work/door.img" "$work/b"/* ::/
+      door_args=(-drive "file=$work/door.img,format=raw,if=floppy,index=1")
     fi
     write_test_bat "A:" 1
     mcopy -o -i "$img" "$work/FDCONFIG.SYS" "$work/TEST.BAT" \
@@ -397,6 +428,9 @@ case "$emu" in
     if [ -n "$door" ]; then
       mkdir -p "$work/d"
       cp -r "$cache"/. "$work/d"/
+      if declare -F door_dropfiles >/dev/null; then
+        door_dropfiles "$work/d" "$work/d" C:
+      fi
       rd=E:
       mounts="mount c \"$work/d\"
 mount e \"$work\""
@@ -423,6 +457,24 @@ EOF
       > "$work/emulator.log" 2>&1 &
     emu_pid=$!
     ;;
+  dosdoor)
+    # Laid out like a WWIV install: dosdoor.sh and WWIVFOSS.EXE together
+    # (mounted as W:), the door directory (C:), and a node temp directory
+    # holding LF drop files (T:), which WWIV passes as %I.
+    mkdir -p "$work/w" "$work/d" "$work/temp"
+    cp "$root/configs/wwiv/dosdoor.sh" "$work/w/dosdoor.sh"
+    cp "$root/dos/wwivfoss.exe" "$work/w/WWIVFOSS.EXE"
+    cp -r "$cache"/. "$work/d"/
+    if declare -F door_dropfiles >/dev/null; then
+      DROP_EOL=lf door_dropfiles "$work/d" "$work/temp" T:
+    fi
+    # shellcheck disable=SC2086  # DOOR_CMD is split into words, as WWIV does
+    DOSDOOR_ECHO="${DOOR_DOSDOOR_ECHO:-}" \
+    DOSDOOR_FLAGS="-ST:\\STATS.TXT ${WWIVFOSS_FLAGS:-}" DOSDOOR_LOG="$work/doslog" \
+      "$work/w/dosdoor.sh" "$port" "$work/temp" "$work/d" $DOOR_CMD \
+      > "$work/emulator.log" 2>&1 &
+    emu_pid=$!
+    ;;
 esac
 
 if ! wait "$bbs_pid"; then
@@ -443,16 +495,27 @@ wait "$emu_pid" || true
 emu_pid=""
 
 fetch_results
-if [ "$mode" = resident ]; then
-  unload="$(tr -d '\r\n ' < "$work/UNLOAD.TXT" 2>/dev/null || echo missing)"
-  [ "$unload" = ok ] || fail "resident mode: $unload"
+if [ "$emu" = dosdoor ]; then
+  # dosdoor.sh doesn't report the door's errorlevel; WWIVFOSS wrote its
+  # call counts to T:\STATS.TXT.
+  for f in "$work/temp"/*; do
+    case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
+      stats.txt) cp "$f" "$work/STATS.TXT" ;;
+    esac
+  done
+  echo "ok - door exited (dosdoor.sh, errorlevel not reported)"
+else
+  if [ "$mode" = resident ]; then
+    unload="$(tr -d '\r\n ' < "$work/UNLOAD.TXT" 2>/dev/null || echo missing)"
+    [ "$unload" = ok ] || fail "resident mode: $unload"
+  fi
+  [ -f "$work/RESULT.TXT" ] || fail "no RESULT.TXT; the test batch file did not finish"
+  errorlevel="$(tr -dc '0-9' < "$work/RESULT.TXT")"
+  if [ "$want_errorlevel" != any ] && [ "$errorlevel" != "$want_errorlevel" ]; then
+    fail "errorlevel $errorlevel, wanted $want_errorlevel"
+  fi
+  echo "ok - door exited with errorlevel $errorlevel"
 fi
-[ -f "$work/RESULT.TXT" ] || fail "no RESULT.TXT; the test batch file did not finish"
-errorlevel="$(tr -dc '0-9' < "$work/RESULT.TXT")"
-if [ "$want_errorlevel" != any ] && [ "$errorlevel" != "$want_errorlevel" ]; then
-  fail "errorlevel $errorlevel, wanted $want_errorlevel"
-fi
-echo "ok - door exited with errorlevel $errorlevel"
 # Prove the door went through WWIVFOSS, not its own UART code.
 [ -f "$work/STATS.TXT" ] || fail "no STATS.TXT from WWIVFOSS -S"
 calls="$(awk '$1 == "total" {print $2}' "$work/STATS.TXT")"

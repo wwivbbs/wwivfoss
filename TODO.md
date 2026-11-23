@@ -52,9 +52,14 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       without wwivd. LORD plays end to end through WWIV on Linux.
 - [x] Fixed: transmitter stall when a byte arrives as a door starts (lost
       THRE interrupt under DOSBox-X; flush waited forever on tx_busy).
-- [ ] Run door tests through `dosdoor.sh` itself, so they match what WWIV
-      runs; `lord-stray` doesn't reproduce the stall in the current
-      harness layout.
+- [x] Door tests run through `dosdoor.sh` too (`dosdoor` mode). With it,
+      `lord-stray` fails on the old build and passes on the fix. Findings
+      along the way: command echo in the autoexec made DOSBox-X service the
+      UART late (hundreds of RX overruns per Zmodem run; `dosdoor.sh` now
+      uses `@echo off`), and QEMU's `fat:rw:` drive lost a file's last
+      sector (QEMU door runs now use a FAT floppy image as B:).
+- [ ] `lord-stray` failed once in 24 runs with the fix (dosdoor mode, echo
+      on); not reproduced since. Watch for it.
 - [ ] `-I0` (no idling) still stalls with a stray byte at door start (RX
       overrun logged by DOSBox-X).
 - [ ] Sysop guide (`docs/wwiv.md`): chain settings, `dosdoor.sh`, per-door

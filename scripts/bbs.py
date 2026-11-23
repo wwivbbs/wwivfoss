@@ -15,8 +15,8 @@ SCENARIO against FOSTEST:
             alternatives separated by "|" and matches with ANSI codes
             removed too. $DOOR_MIN_BYTES waits for that much output
             instead of (or as well as) text. $DOOR_STRAY, if set,
-            is sent when the door's first output arrives (escapes like
-            \\r ok)
+            is sent when the door connects, as WWIV does (escapes like
+            \\r ok; DOOR_STRAY_WHEN=output waits for its first output)
     zmodem  round trip with a Zmodem program in DOS (FDSZ): lrzsz sends
             $ZM_DIR/DOWN.BIN, DOS receives it and sends it back, and the
             copy that returns must match byte for byte
@@ -211,12 +211,12 @@ conn.settimeout(1)
 door = Door(conn)
 
 # Stray input as the door starts, e.g. the Enter a caller typed after
-# picking the door, which WWIV forwards to it (wwivbbs/wwiv#1737). Sent when
-# the door's first output arrives: by then the FOSSIL has opened the port
-# (it discards anything that arrived before) and the door is in its startup
-# terminal checks, where a stray byte matters.
+# picking the door, which WWIV forwards to it the moment the door connects
+# (wwivbbs/wwiv#1737). DOOR_STRAY_WHEN=output waits for the door's first
+# output instead.
 if os.environ.get("DOOR_STRAY"):
-    door.wait_for(lambda: len(door.data) > 0, "the door's first output")
+    if os.environ.get("DOOR_STRAY_WHEN") == "output":
+        door.wait_for(lambda: len(door.data) > 0, "the door's first output")
     door.send(os.environ["DOOR_STRAY"].encode().decode("unicode_escape").encode("latin-1"))
 
 if scenario == "zmodem":

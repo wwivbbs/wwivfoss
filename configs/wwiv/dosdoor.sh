@@ -20,6 +20,8 @@
 #   DOSDOOR_DOSBOX   DOSBox-X binary (default: dosbox-x)
 #   DOSDOOR_FLAGS    extra WWIVFOSS options (e.g. -S for call statistics)
 #   DOSDOOR_CONF     extra DOSBox-X config file merged in (e.g. [cpu] cycles)
+#   DOSDOOR_ECHO=1   echo the commands on the DOSBox-X screen (debugging;
+#                    note it makes DOSBox-X service the UART more slowly)
 #   DOSDOOR_LOG      troubleshooting: directory to save a copy of the drop
 #                    files and DOSBox-X config as the door saw them, and
 #                    DOSBox-X's output (dosbox.log)
@@ -45,7 +47,12 @@ for f in "$temp"/*; do
   esac
 done
 
+# "@echo off" matters beyond tidiness: with command echo on in autoexec,
+# DOSBox-X 2025.02 delayed the UART interrupt enough to overrun the receive
+# FIFO during fast transfers (hundreds of lost bytes per Zmodem run).
 conf="$temp/dosdoor.conf"
+echo_cmd="@echo off"
+[ "${DOSDOOR_ECHO:-}" = 1 ] && echo_cmd="@echo on"
 cat > "$conf" <<CONF
 [dosbox]
 quit warning = false
@@ -57,6 +64,7 @@ cycles = max
 serial1 = nullmodem server:127.0.0.1 port:$port transparent:1
 
 [autoexec]
+$echo_cmd
 mount c "$dir"
 mount t "$temp"
 mount w "$here"

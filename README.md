@@ -32,8 +32,9 @@ WWIVFOSS -U                            unload the resident copy
         (default; what WWIV's "WWIVFOSS (Socket Port)" mode speaks, needed
         for QEMU). -E- turns it off for a raw stream: DOSBox-X through
         dosdoor.sh, a real modem, telnet/nc
-  -H#   With -E: the BBS sends a heartbeat (FF 03) every # seconds (default
-        10); 3 missed heartbeats count as a hangup. -H0 turns it off
+  -H#   With -E: expect a heartbeat (FF 03) from the BBS every # seconds;
+        3 missed heartbeats count as a hangup. Off by default; use -H10
+        with WWIV's "WWIVFOSS (Socket Port)" mode
   -C    Force carrier detect on
   -T?   Transport: U=uart (default), V=vdd, O=OS/2 pipe
   -N#   Node number (used by the vdd and pipe transports)
@@ -45,7 +46,7 @@ Examples:
 
 ```
 WWIVFOSS -P1 -E- C:\DOORS\LORD\START.BAT 1  DOSBox-X, one door
-WWIVFOSS -P1 C:\DOORS\LORD\LORD.EXE         QEMU, one door
+WWIVFOSS -P1 -H10 C:\DOORS\LORD\LORD.EXE    QEMU, one door
 WWIVFOSS -L -P1 -E-                          resident, for a DOS BBS
 ```
 

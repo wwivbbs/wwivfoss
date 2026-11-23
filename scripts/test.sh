@@ -15,8 +15,9 @@
 #   scripts/test.sh dosbox door:lord          one door
 #   KEEP=1 scripts/test.sh qemu funcs         keep .devenv/test/ afterwards
 #
-#   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS defaults (-E -H10: in-band
-#                     line control and heartbeats, QEMU doesn't drop DCD)
+#   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -H10 with the default -E
+#                     (in-band line control and heartbeats; QEMU doesn't
+#                     drop DCD)
 #             dosbox  DOSBox-X; WWIVFOSS -E- (raw stream, DCD follows the socket)
 #             dosdoor doors only: run through configs/wwiv/dosdoor.sh exactly
 #                     as a WWIV SOCK_PORT chain does (drop files written
@@ -177,7 +178,7 @@ case "$emu" in
   qemu)
     need qemu-system-i386 qemu-system-x86; need mcopy mtools
     framing=inband
-    flags="-P1"          # -E -H10 are WWIVFOSS's defaults
+    flags="-P1 -H10"     # -E is the default; expect WWIV-style heartbeats
     ;;
   dosbox)
     need dosbox-x dosbox-x

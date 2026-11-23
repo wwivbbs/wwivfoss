@@ -32,9 +32,11 @@
 #define EXIT_HOOKED     6   /* -U: another program hooked our vectors */
 #define EXIT_FREE       7   /* -U: couldn't free the resident memory */
 
-/* Defaults: COM1, uart, in-band line control (-E) with 10 s heartbeats
-   (-H10), which is what WWIV's "WWIVFOSS (Socket Port)" mode speaks. */
-struct options g_opts = {1, 'U', 0, 0, 1, 1, NULL, 10};
+/* Defaults: COM1, uart, in-band line control (-E), no heartbeat. WWIV's
+   "WWIVFOSS (Socket Port)" mode speaks -E; add -H10 to expect its
+   heartbeats. Heartbeats stay opt-in: with nobody sending them, -H would
+   drop every caller after 3 periods. */
+struct options g_opts = {1, 'U', 0, 0, 1, 1, NULL, 0};
 static int heartbeat_given;
 const struct transport* g_transport;
 
@@ -50,8 +52,9 @@ static void usage(void) {
     "  -E    In-band line control: carrier/DTR in the byte stream (default;\r\n"
     "        see foss_protocol.h). -E- turns it off for a raw stream:\r\n"
     "        DOSBox-X via dosdoor.sh, a real modem, plain telnet/nc\r\n"
-    "  -H#   With -E: the BBS sends FF 03 every # seconds (default 10);\r\n"
-    "        no data for 3 periods counts as a hangup. -H0 turns it off\r\n"
+    "  -H#   With -E: expect a heartbeat (FF 03) from the BBS every #\r\n"
+    "        seconds; no data for 3 periods counts as a hangup. Off by\r\n"
+    "        default; use -H10 with WWIV's WWIVFOSS (Socket Port) mode\r\n"
     "  -C    Force carrier detect on\r\n"
     "  -Sfile Write FOSSIL call counts to file when the door exits\r\n"
     "        (runner) or on -U (resident)\r\n"

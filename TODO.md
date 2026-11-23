@@ -40,6 +40,10 @@ runner and resident × echo/hangup/dtr) that runs in CI.
         archive at https://mirrors.archeobits.com/bbs/archives.thebbs.org/.
         All doors pass under both emulators in both modes, and `-S` call
         counts prove each one used the FOSSIL rather than its own UART code.
+  - [x] Food Fight 4.6 (`foodfite.sh`, DOOR.SYS). It checks carrier by
+        reading the UART directly, so under QEMU it never saw an in-band
+        hangup; WWIVFOSS -E now signals hangups through UART loopback mode
+        (DCD reads low), which fixed it.
   - [ ] Editors: TIDE, OEdit, WWIVEdit (need WWIV editor drop files).
   - [ ] TW2002 1.03 (archive has it; v2 isn't there).
 

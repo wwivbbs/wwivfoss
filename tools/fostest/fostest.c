@@ -5,7 +5,9 @@
  *
  * FOSTEST: a FOSSIL door used to test drivers.
  *
- *   FOSTEST [port]      port is 1-based (default 1)
+ *   FOSTEST [port] [/W]   port is 1-based (default 1); /W waits up to 30
+ *                         seconds for carrier first, like a BBS waiting for
+ *                         the next caller (exit 4 if none comes)
  *
  * Initialises the FOSSIL, prints driver information, sends a banner, then
  * echoes what it receives. Uppercase letters from the caller are commands:
@@ -21,7 +23,8 @@
  *   T  transmit speed: write 32 KB with 19h, report the time
  *
  * Each test reports "<NAME> OK" or "<NAME> FAIL <detail>" to the caller and
- * to stdout. Exit codes: 0 quit, 1 no FOSSIL, 2 carrier lost, 3 hung up.
+ * to stdout. Exit codes: 0 quit, 1 no FOSSIL, 2 carrier lost, 3 hung up,
+ * 4 no caller arrived (/W).
  */
 #include <conio.h>
 #include <dos.h>
@@ -337,7 +340,17 @@ int main(int argc, char** argv) {
   unsigned st;
   int ch;
 
-  port = (argc > 1) ? (unsigned)(atoi(argv[1]) - 1) : 0;
+  int wait_for_caller = 0;
+  int i;
+
+  port = 0;
+  for (i = 1; i < argc; i++) {
+    if (argv[i][0] == '/' && (argv[i][1] == 'W' || argv[i][1] == 'w')) {
+      wait_for_caller = 1;
+    } else {
+      port = (unsigned)(atoi(argv[i]) - 1);
+    }
+  }
 
   r.h.ah = F_INIT;
   r.x.dx = port;
@@ -352,6 +365,17 @@ int main(int argc, char** argv) {
   printf("FOSTEST: driver: %Fs\n", (char __far*)MK_FP(info.ident_seg, info.ident_off));
   printf("FOSTEST: info bytes %u, in buffer %u, out buffer %u\n",
          r.x.ax, info.ibufr, info.obufr);
+
+  if (wait_for_caller) {
+    unsigned long start = *bios_ticks;
+    printf("FOSTEST: waiting for a caller\n");
+    while (!carrier()) {
+      if (*bios_ticks - start > 18UL * 30) {
+        printf("FOSTEST: no caller within 30 seconds\n");
+        return 4;
+      }
+    }
+  }
 
   send("FOSTEST ready. Type text to echo; Q quits, H hangs up.\r\n");
 

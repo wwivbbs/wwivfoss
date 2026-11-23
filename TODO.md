@@ -99,13 +99,11 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       WWIVFOSS drops carrier if nothing arrives for a few periods, covering a
       BBS that dies without sending `FF 00`. Test by killing the harness.
       wwivbbs/wwivfoss#1 (driver), wwivbbs/wwiv#1753 (BBS).
-- [ ] **`FF 03` on every connection (`-E`)**: after an in-band hangup the
-      UART stays in loopback (OUT2 low) until DTR comes back up, which a
-      resident WWIVFOSS can't detect by itself under QEMU. Make "the BBS
-      sends `FF 03` first on every connection" a documented rule in
-      `foss_protocol.h`, have `bbs.py` do it, and add a resident-mode
-      two-calls test (call, hang up, call again). WWIV side: noted on
-      wwivbbs/wwiv#1752.
+- [x] **`FF 03` on every connection (`-E`)**: documented as required in
+      `foss_protocol.h`; `bbs.py` sends it on every in-band connection; the
+      `twocalls` test (qemu, resident: call, hang up, call again) passes,
+      and fails as it should when call 2 omits `FF 03` (FOSTEST /W times
+      out waiting for a caller). WWIV side: noted on wwivbbs/wwiv#1752.
 - [ ] **Measure idle CPU**: confirm the `HLT` / INT 2Fh idling keeps host
       CPU low while a door waits for input, in both emulators.
 - [ ] **Report the DOSBox-X bug** upstream: `~CNullModem` never calls

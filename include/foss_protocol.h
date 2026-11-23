@@ -26,9 +26,13 @@
  *                              DOS -> BBS: 0 means the door hung up)
  *                bit 2  break
  *
- * Both directions start out as RTS|DTR (03h). With -E, the BBS sends FF 00
- * before closing the socket when the caller drops, and hangs up the caller
- * when it receives a line state with DTR clear.
+ * Both directions start out as RTS|DTR (03h). With -E, the BBS:
+ *
+ *   - sends FF 03 first on every connection (required: after a hangup
+ *     WWIVFOSS keeps the UART in loopback until DTR comes back up, and a
+ *     resident copy can't see a new connection any other way),
+ *   - sends FF 00 (or FF 01) before closing the socket when the caller drops,
+ *   - hangs up the caller when it receives a line state with DTR clear.
  *
  * Doors that read the UART's modem status register directly (rather than
  * FOSSIL status) would never see the hangup, since the emulator holds DCD

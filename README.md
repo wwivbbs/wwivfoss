@@ -82,14 +82,15 @@ scripts/build.sh         # dos/wwivfoss.exe, tools/fostest/fostest.exe
 TCP socket, with `scripts/bbs.py` playing the BBS on the other end.
 
 ```
-scripts/test.sh all      # FOSTEST matrix: 14 runs, ~5 minutes (what CI runs)
+scripts/test.sh all      # FOSTEST matrix: 15 runs, ~5 minutes (what CI runs)
 scripts/test.sh doors    # every real door: 35 runs, ~25 minutes
 ```
 
 `all` covers echo, hangup, DTR hangup and the FOSSIL self-tests (local
 functions, peek, purge, all 256 byte values, keyboard) under QEMU (`-E`
 in-band line control) and DOSBox-X, each with WWIVFOSS as a runner and as a
-resident TSR (`-L` then `-U`).
+resident TSR (`-L` then `-U`), plus a two-calls test (resident under QEMU:
+call, hang up, call again) proving the port recovers after a hangup.
 
 `doors` runs each definition in `tests/doors/` under both emulators and both
 modes, and once more through `configs/wwiv/dosdoor.sh` exactly as a WWIV

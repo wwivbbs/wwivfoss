@@ -20,6 +20,10 @@ SCENARIO against FOSTEST:
     zmodem  round trip with a Zmodem program in DOS (FDSZ): lrzsz sends
             $ZM_DIR/DOWN.BIN, DOS receives it and sends it back, and the
             copy that returns must match byte for byte
+    twocalls  (resident WWIVFOSS -E) call 1: banner, echo, hang up; call 2
+            on a new connection: FF 03, banner, echo, Q. Proves the port
+            recovers after a hangup. TWOCALLS_SKIP_FF03=1 omits call 2's
+            FF 03 (the test must then fail)
     speed   32 KB each way with FOSTEST R/T; prints the throughput
     funcs   FOSTEST's self-tests: F (local functions), P (peek), X (purge),
             B (all 256 byte values both ways), K (keyboard, only with a
@@ -128,6 +132,13 @@ class Door:
             data = data.replace(b"\xff", b"\xff\xff")
         self.conn.sendall(data)
 
+    def start_call(self):
+        """With in-band framing, the BBS reports RTS|DTR up first on every
+        connection (foss_protocol.h): after a hangup WWIVFOSS keeps the UART
+        in loopback until it sees DTR again."""
+        if inband:
+            self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
+
     def hang_up(self):
         if inband:
             self.conn.sendall(bytes([ESC, LINE_RTS]))   # DTR low
@@ -209,6 +220,7 @@ except socket.timeout:
     fail("the emulator never connected")
 conn.settimeout(1)
 door = Door(conn)
+door.start_call()
 
 # Stray input as the door starts, e.g. the Enter a caller typed after
 # picking the door, which WWIV forwards to it the moment the door connects
@@ -286,6 +298,28 @@ elif scenario == "dtr":
     door.wait_for(lambda: not door.lines & LINE_DTR, "DTR to drop")
     print("ok - door lowered DTR (seen in-band)")
     conn.close()
+elif scenario == "twocalls":
+    door.hang_up()
+    print("ok - call 1: caller hung up")
+    try:
+        conn, _ = server.accept()
+    except socket.timeout:
+        fail("the emulator never reconnected for call 2")
+    conn.settimeout(1)
+    door = Door(conn)
+    print("ok - call 2: the emulator reconnected")
+    if os.environ.get("TWOCALLS_SKIP_FF03"):
+        print("   (not sending FF 03 on call 2)")
+    else:
+        door.start_call()
+    door.expect("FOSTEST ready")
+    print("ok - call 2: banner received; the port recovered")
+    door.send(b"hello\r")
+    door.expect("hello")
+    door.send(b"Q")
+    door.expect("BYE")
+    print("ok - call 2: echo and BYE")
+    time.sleep(1)
 elif scenario == "speed":
     door.send(b"R")
     door.expect("RX READY")

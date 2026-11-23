@@ -27,6 +27,8 @@
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
 #                     (qemu only: needs in-band framing to observe DTR)
 #             speed   32 KB each way through FOSSIL block I/O; prints KB/s
+#             twocalls  (qemu, resident) call, hang up, call again: the second
+#                     call must work, i.e. the port recovers from a hangup
 #             funcs   FOSTEST self-tests: local functions, peek, purge,
 #                     all 256 byte values both ways, and (qemu) keyboard
 #             door:NAME  a real door from tests/doors/NAME.sh: expect its
@@ -86,6 +88,11 @@ if [ "$emu" = all ]; then
       fi
     done
   done
+  echo "=== qemu / twocalls / resident"
+  if ! "$0" qemu twocalls resident; then
+    rc=1
+    failed="$failed qemu/twocalls/resident"
+  fi
   if [ "$rc" = 0 ]; then
     echo "ALL PASSED"
   else
@@ -137,6 +144,12 @@ case "$scenario" in
     want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
     ;;
   echo|funcs|speed) want_errorlevel=0 ;;
+  twocalls)
+    want_errorlevel=0  # call 2; call 1 must end with 2 (carrier lost)
+    if [ "$emu" != qemu ] || [ "${mode:-runner}" != resident ]; then
+      echo "twocalls runs as: qemu twocalls resident" >&2; exit 1
+    fi
+    ;;
   hangup) want_errorlevel=2 ;;
   dtr) want_errorlevel=3 ;;
   *) echo "Unknown scenario: $scenario (see $0 --help)" >&2; exit 1 ;;
@@ -247,7 +260,7 @@ fail() {
 # them straight to $work).
 fetch_results() {
   if [ "$emu" = qemu ] && [ -n "${img:-}" ]; then
-    for f in LOG.TXT RESULT.TXT UNLOAD.TXT AFTER.TXT LOADLOG.TXT UNLOG.TXT STATS.TXT; do
+    for f in LOG.TXT RESULT.TXT UNLOAD.TXT AFTER.TXT LOADLOG.TXT UNLOG.TXT STATS.TXT LOG1.TXT RESULT1.TXT; do
       mcopy -o -i "$img" "::/$f" "$work/" 2>/dev/null || true
     done
   fi
@@ -281,7 +294,21 @@ write_test_bat() {
     elif [ "$mode" = resident ]; then
       echo "${d}\\WWIVFOSS.EXE -L $flags > ${d}\\LOADLOG.TXT"
       echo "if errorlevel 1 goto loadfail"
-      echo "${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
+      if [ "$scenario" = twocalls ]; then
+        echo "${d}\\FOSTEST.EXE > ${d}\\LOG1.TXT"
+        for n in 3 2 1; do
+          echo "if errorlevel $n goto c$n"
+        done
+        for n in 0 1 2 3; do
+          echo ":c$n"
+          echo "echo $n > ${d}\\RESULT1.TXT"
+          echo "goto call2"
+        done
+        echo ":call2"
+        echo "${d}\\FOSTEST.EXE 1 /W > ${d}\\LOG.TXT"
+      else
+        echo "${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
+      fi
     else
       echo "${d}\\WWIVFOSS.EXE $flags -S${d}\\STATS.TXT ${d}\\FOSTEST.EXE > ${d}\\LOG.TXT"
     fi
@@ -357,6 +384,9 @@ case "$emu" in
     printf '\xb0\x00\xe6\xf4\xcd\x20' > "$work/QEXIT.COM"
     door_drive=C:
     door_args=()
+    # twocalls: reconnect to the BBS after the first call hangs up.
+    reconnect=""
+    [ "$scenario" = twocalls ] && reconnect=",reconnect-ms=500"
     if [ -n "$door" ]; then
       # The door goes on a fresh copy of the base hard disk image as C:
       # (scripts/mkdisk.py; FAT16 partition at byte offset 32256). Not
@@ -381,7 +411,7 @@ case "$emu" in
       -drive "file=$img,format=raw,if=floppy" -boot a \
       "${door_args[@]}" \
       -display none \
-      -chardev "socket,id=bbs,host=127.0.0.1,port=$port" \
+      -chardev "socket,id=bbs,host=127.0.0.1,port=$port${reconnect}" \
       -serial chardev:bbs \
       -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
       -monitor "tcp:127.0.0.1:$monitor_port,server=on,wait=off" \
@@ -485,6 +515,11 @@ else
     fail "errorlevel $errorlevel, wanted $want_errorlevel"
   fi
   echo "ok - door exited with errorlevel $errorlevel"
+  if [ "$scenario" = twocalls ]; then
+    first="$(tr -dc '0-9' < "$work/RESULT1.TXT" 2>/dev/null || echo missing)"
+    [ "$first" = 2 ] || fail "call 1 ended with errorlevel $first, wanted 2 (carrier lost)"
+    echo "ok - call 1 ended on carrier loss (errorlevel 2); call 2 quit normally"
+  fi
 fi
 # Prove the door went through WWIVFOSS, not its own UART code.
 [ -f "$work/STATS.TXT" ] || fail "no STATS.TXT from WWIVFOSS -S"

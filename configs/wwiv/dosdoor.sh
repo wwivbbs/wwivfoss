@@ -72,7 +72,7 @@ here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 # CR LF (Turbo Pascal doors like LORD read the whole file as one line).
 for f in "$temp"/*; do
   case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
-    chain.txt|dorinfo*.def|door.sys|door32.sys|callinfo.bbs|pcboard.sys|sfdoors.dat)
+    chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
       sed -i 's/\r*$/\r/' "$f" ;;
   esac
 done

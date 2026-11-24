@@ -108,7 +108,7 @@ mkdir -p "$work/drop"
 for f in "$temp"/*; do
   [ -f "$f" ] || continue
   case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
-    chain.txt|dorinfo*.def|door.sys|door32.sys|callinfo.bbs|pcboard.sys|sfdoors.dat)
+    chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
       sed 's/\r*$/\r/' "$f" > "$work/drop/$(basename "$f")" ;;
     *.txt|*.def|*.sys|*.bbs|*.dat|*.inf|msginf)
       cp "$f" "$work/drop/" ;;

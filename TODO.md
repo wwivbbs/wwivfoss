@@ -64,8 +64,11 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       sector (QEMU door runs now use a FAT floppy image as B:).
 - [ ] `lord-stray` failed once in 24 runs with the fix (dosdoor mode, echo
       on); not reproduced since. Watch for it.
-- [ ] `-I0` (no idling) still stalls with a stray byte at door start (RX
-      overrun logged by DOSBox-X).
+- [x] `-I0` (no idling) stalled with a stray byte at door start: DOSBox-X's
+      IIR kept reporting received data that LSR didn't have, the ISR gave
+      up with the IRQ line high, and no UART IRQ came again. The ISR now
+      reads RBR to clear it, and re-arms IER if its loop gives up. (The
+      `lord-stray` flake below may have been the same thing.)
 - [x] Sysop guide (`docs/wwiv.md`): DOSBox-X setup, chains, per-door
       recipes, troubleshooting, QEMU and WWIV's "WWIVFOSS (Socket Port)"
       mode, and the QEMU launcher (`configs/wwiv/qemudoor.sh`).

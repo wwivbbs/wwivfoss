@@ -140,11 +140,14 @@ static void tx_fill(void) {
   tx_busy = (unsigned char)(n != 0);
 }
 
-static void rx_drain(void) {
+/* Reads every byte the UART holds into the RX ring; returns how many. */
+static unsigned rx_drain(void) {
   unsigned next;
+  unsigned got = 0;
   unsigned char c;
   unsigned char lsr;
   while ((lsr = (unsigned char)inp(base + LSR)) & LSR_DR) {
+    ++got;
     if (lsr & LSR_OE) {
       rx_lost = 1;
     }
@@ -171,6 +174,7 @@ static void rx_drain(void) {
       rx_head = next;
     }
   }
+  return got;
 }
 
 static void __interrupt __far uart_isr(void) {
@@ -184,7 +188,13 @@ static void __interrupt __far uart_isr(void) {
     }
     switch (iir & IIR_ID) {
     case IIR_RDA:
-      rx_drain();
+      if (rx_drain() == 0) {
+        /* IIR says data (or a FIFO timeout) but LSR has none: seen with
+           DOSBox-X when a stray byte arrived as the door started, with -I0.
+           Reading RBR clears the condition; otherwise IIR repeats it, the
+           loop below gives up, and no UART IRQ is ever raised again. */
+        (void)inp(base + RBR);
+      }
       break;
     case IIR_THRE:
       tx_fill();
@@ -207,6 +217,18 @@ static void __interrupt __far uart_isr(void) {
    */
   if (tx_busy && (inp(base + LSR) & LSR_THRE)) {
     tx_fill();  /* sends more, or clears tx_busy if the ring is empty */
+  }
+  /*
+   * The PIC only sees a rising edge on the IRQ line. If the loop gave up
+   * with the UART still asking for service, its line stays high and no IRQ
+   * ever comes again: no more THRE, so the transmitter stalls. Turning IER
+   * off and on drops the line and raises it again. Only then: re-enabling
+   * THRE with the transmitter empty raises a new interrupt at once, so
+   * doing it on every exit would never let the door run.
+   */
+  if (!(iir & IIR_NONE)) {
+    outp(base + IER, 0);
+    outp(base + IER, IER_RDA | IER_THRE | IER_MSR);
   }
   outp(PIC1_CMD, PIC_EOI);
 }

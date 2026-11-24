@@ -292,9 +292,13 @@ exits, files the door created or changed are copied back into the door's
 directory, and changed drop files into `%I`. That happens even when WWIV
 kills the launcher on hang-up. Files the door deleted stay on Linux.
 
-Because of that copy back, only one node can be in a door at a time; a
-second caller gets "This door is in use on another node". The door has to
-fit on the 32 MB disk. `-r` is accepted for "Listen Socket Port", but under
+Because of that copy back, only one node can be in a door at a time. Set
+the chain's Multi user to **No** and WWIV enforces that itself: a second
+caller is told the chain is in use on another instance. WWIV checks per
+chain, though, so `qemudoor.sh` also locks the door directory: if two
+chains share it (say the same door under both launchers), the second
+caller gets "This door is in use on another node". The door has to fit on
+the 32 MB disk. `-r` is accepted for "Listen Socket Port", but under
 QEMU the door then never sees a hang-up: WWIV kills QEMU instead, as with
 DOSBox-X in that mode. `qemudoor.sh --help` lists its environment
 variables (`QEMUDOOR_LOG`, `QEMUDOOR_FLAGS`, ...).

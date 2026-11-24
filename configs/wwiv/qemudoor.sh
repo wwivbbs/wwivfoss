@@ -29,8 +29,9 @@
 #   A:  the FreeDOS boot floppy, with WWIVFOSS.EXE
 #
 # One node at a time per door: the copy back would undo another node's
-# changes, so a second caller gets "in use" instead. Set the chain's
-# Multi user to No.
+# changes. Set the chain's Multi user to No and WWIV enforces it per chain;
+# a lock on DOORDIR also covers two chains sharing one door, telling the
+# second caller the door is in use.
 #
 # Next to this script (or see QEMUDOOR_BOOT / QEMUDOOR_DISK):
 #   WWIVFOSS.EXE

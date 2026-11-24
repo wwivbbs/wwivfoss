@@ -14,6 +14,7 @@
 #   scripts/test.sh qemu speed                throughput, prints KB/s
 #   scripts/test.sh dosbox door:lord          one door
 #   KEEP=1 scripts/test.sh qemu funcs         keep .devenv/test/ afterwards
+#   TEST_WORK=DIR scripts/test.sh ...         work in DIR (to run tests side by side)
 #
 #   EMULATOR  qemu    FreeDOS 1.4 floppy; WWIVFOSS -H10 with the default -E
 #                     (in-band line control and heartbeats; QEMU doesn't
@@ -26,6 +27,8 @@
 #                     errorlevel isn't checked)
 #             dosdoor-raw  the same with dosdoor.sh -r, as a "Listen Socket
 #                     Port" chain does (raw stream)
+#             qemudoor  doors only: through configs/wwiv/qemudoor.sh as a
+#                     "WWIVFOSS (Socket Port)" chain runs it
 #   SCENARIO  echo    type text, Q quits; expect errorlevel 0 (default)
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
@@ -120,9 +123,9 @@ if [ "$emu" = doors ]; then
       echo "=== door:$name: skipped ($src not found)"
       continue
     fi
-    emus="$(DOOR_EMUS=; . "$def"; echo "${DOOR_EMUS:-qemu dosbox dosdoor dosdoor-raw}")"
+    emus="$(DOOR_EMUS=; . "$def"; echo "${DOOR_EMUS:-qemu dosbox dosdoor dosdoor-raw qemudoor}")"
     for run in qemu:runner dosbox:runner qemu:resident dosbox:resident \
-               dosdoor:runner dosdoor-raw:runner; do
+               dosdoor:runner dosdoor-raw:runner qemudoor:runner; do
       e="${run%%:*}"
       m="${run##*:}"
       case " $emus " in *" $e "*) ;; *) continue ;; esac
@@ -200,13 +203,22 @@ case "$emu" in
     [ -n "$door" ] || { echo "dosdoor runs doors only (door:NAME)" >&2; exit 1; }
     [ "$mode" = runner ] || { echo "dosdoor runs doors as a runner only" >&2; exit 1; }
     ;;
+  qemudoor)
+    need qemu-system-i386 qemu-system-x86; need mcopy mtools
+    framing=inband
+    flags=""
+    [ -n "$door" ] || { echo "qemudoor runs doors only (door:NAME)" >&2; exit 1; }
+    [ "$mode" = runner ] || { echo "qemudoor runs doors as a runner only" >&2; exit 1; }
+    [ -f "$dev/freedos/qemudoor-boot.img" ] || {
+      echo "Missing $dev/freedos/qemudoor-boot.img (run scripts/setup-dev.sh)" >&2; exit 1; }
+    ;;
   *) echo "Unknown emulator: $emu (see $0 --help)" >&2; exit 1 ;;
 esac
 # Heartbeat scenarios: the BBS sends FF 03 every 2 s, WWIVFOSS -H2 watches.
 # A door definition with DOOR_HANGUP=silent gets the same.
 case "$scenario/${DOOR_HANGUP:-}" in
   deadbbs/*|hbidle/*|*/silent)
-    [ "$emu" = qemu ] || { echo "$scenario needs in-band framing (qemu)" >&2; exit 1; }
+    [ "$emu" = qemu ] || [ "$emu" = qemudoor ] || { echo "$scenario needs in-band framing (qemu)" >&2; exit 1; }
     flags="$flags -H2"
     export HEARTBEAT=2
     ;;
@@ -240,7 +252,8 @@ for f in "$root/dos/wwivfoss.exe" "$root/tools/fostest/fostest.exe"; do
   [ -f "$f" ] || { echo "Missing $f (run scripts/build.sh)" >&2; exit 1; }
 done
 
-work="$dev/test/$emu-${scenario/:/-}-$mode"
+# TEST_WORK: a work directory of your own, for running tests side by side.
+work="${TEST_WORK:-$dev/test/$emu-${scenario/:/-}-$mode}"
 rm -rf "$work"
 mkdir -p "$work"
 port=$((20000 + RANDOM % 20000))
@@ -259,7 +272,7 @@ cleanup() {
 trap cleanup EXIT
 
 screenshot() {
-  [ "$emu" = qemu ] || return 0
+  case "$emu" in qemu|qemudoor) ;; *) return 0 ;; esac
   { exec 4<>"/dev/tcp/127.0.0.1/$monitor_port" &&
     printf 'screendump %s -f png\n' "$work/screen.png" >&4 &&
     sleep 1; } 2>/dev/null || true
@@ -389,7 +402,7 @@ export DOOR_HANGUP="${DOOR_HANGUP:-}"
 export DOOR_STRAY_WHEN="${DOOR_STRAY_WHEN:-}"
 export DOOR_MIN_BYTES="${DOOR_MIN_BYTES:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
-[ "$emu" = qemu ] && bbs_args+=("$monitor_port")
+case "$emu" in qemu|qemudoor) bbs_args+=("$monitor_port") ;; esac
 python3 "$root/scripts/bbs.py" "${bbs_args[@]}" &
 bbs_pid=$!
 for _ in $(seq 1 50); do
@@ -502,6 +515,28 @@ EOF
       > "$work/emulator.log" 2>&1 &
     emu_pid=$!
     ;;
+  qemudoor)
+    # Laid out like a WWIV install: qemudoor.sh, WWIVFOSS.EXE and the two
+    # images together, the door directory, and a node temp dir of LF drop
+    # files (%I), which qemudoor.sh shows the door as T:.
+    mkdir -p "$work/w" "$work/d" "$work/temp"
+    cp "$root/configs/wwiv/qemudoor.sh" "$work/w/qemudoor.sh"
+    cp "$root/dos/wwivfoss.exe" "$work/w/WWIVFOSS.EXE"
+    cp "$dev/freedos/qemudoor-boot.img" "$work/w/"
+    cp "$dev/freedos/c.img" "$work/w/qemudoor-c.img"
+    cp -r "$cache"/. "$work/d"/
+    if declare -F door_dropfiles >/dev/null; then
+      DROP_EOL=lf door_dropfiles "$work/d" "$work/temp" T:
+    fi
+    hb=""
+    [ -n "${HEARTBEAT:-}" ] && hb="-H$HEARTBEAT"
+    # shellcheck disable=SC2086  # DOOR_CMD is split into words, as WWIV does
+    QEMUDOOR_FLAGS="$hb -ST:\\STATS.TXT ${WWIVFOSS_FLAGS:-}" QEMUDOOR_LOG="$work/doslog" \
+      QEMUDOOR_ARGS="-monitor tcp:127.0.0.1:$monitor_port,server=on,wait=off" \
+      "$work/w/qemudoor.sh" "$port" "$work/temp" "$work/d" $DOOR_CMD \
+      > "$work/emulator.log" 2>&1 &
+    emu_pid=$!
+    ;;
 esac
 
 if ! wait "$bbs_pid"; then
@@ -522,7 +557,7 @@ wait "$emu_pid" || true
 emu_pid=""
 
 fetch_results
-if [ "$emu" = dosdoor ] || [ "$emu" = dosdoor-raw ]; then
+if [ "$emu" = dosdoor ] || [ "$emu" = dosdoor-raw ] || [ "$emu" = qemudoor ]; then
   # dosdoor.sh doesn't report the door's errorlevel; WWIVFOSS wrote its
   # call counts to T:\STATS.TXT.
   for f in "$work/temp"/*; do
@@ -530,7 +565,7 @@ if [ "$emu" = dosdoor ] || [ "$emu" = dosdoor-raw ]; then
       stats.txt) cp "$f" "$work/STATS.TXT" ;;
     esac
   done
-  echo "ok - door exited (dosdoor.sh, errorlevel not reported)"
+  echo "ok - door exited (${emu%-raw}.sh launcher, errorlevel not reported)"
 else
   if [ "$mode" = resident ]; then
     unload="$(tr -d '\r\n ' < "$work/UNLOAD.TXT" 2>/dev/null || echo missing)"

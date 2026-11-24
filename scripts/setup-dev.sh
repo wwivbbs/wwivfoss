@@ -11,6 +11,9 @@
 #   .devenv/freedos/   FreeDOS 1.4 boot floppy (boot.img), and an empty 32 MB
 #                      FAT16 hard disk (c.img) that QEMU door tests and
 #                      scripts/shell.sh copy for their C: drive
+#                      qemudoor-boot.img: boot.img plus FreeDOS's SWSUBST.EXE,
+#                      for configs/wwiv/qemudoor.sh (copy it and c.img, as
+#                      qemudoor-c.img, next to qemudoor.sh)
 #
 # Also needed from the system for testing (see scripts/test.sh --help):
 #   sudo apt-get install -y qemu-system-x86 mtools dosbox-x python3 lrzsz
@@ -30,6 +33,8 @@ mkdir -p "$dev/downloads"
 
 OW_URL="https://github.com/open-watcom/open-watcom-v2/releases/download/Current-build/ow-snapshot.tar.xz"
 FD_URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/1.4/FD14-FloppyEdition.zip"
+SWSUBST_URL="https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/repositories/1.4/base/swsubst.zip"
+SWSUBST_SHA256="25b66347dc8ca47aaf52a0e4a4c6698f01925c66ccb8b0e5eeb773460706b7f6"
 
 fetch() {
   out="$dev/downloads/$(basename "$1")"
@@ -71,6 +76,20 @@ if [ ! -f "$dev/freedos/c.img" ]; then
   else
     echo "Skipping .devenv/freedos/c.img: needs mtools (sudo apt-get install -y mtools)" >&2
   fi
+fi
+
+# qemudoor.sh's boot floppy: FreeDOS has no SUBST on its boot floppy, and
+# qemudoor needs one to show the drop files on T: as dosdoor.sh does.
+if [ ! -f "$dev/freedos/qemudoor-boot.img" ] && command -v mcopy >/dev/null 2>&1; then
+  sw="$(fetch "$SWSUBST_URL")"
+  echo "$SWSUBST_SHA256  $sw" | sha256sum -c --quiet - || {
+    echo "swsubst.zip checksum mismatch: $sw" >&2; exit 1; }
+  tmp="$(mktemp -d)"
+  unzip -q -o -j "$sw" BIN/SWSUBST.EXE -d "$tmp"
+  cp "$dev/freedos/boot.img" "$tmp/boot.img"
+  mcopy -o -i "$tmp/boot.img" "$tmp/SWSUBST.EXE" ::/
+  mv "$tmp/boot.img" "$dev/freedos/qemudoor-boot.img"
+  rm -r "$tmp"
 fi
 
 echo "Development environment ready in $dev"

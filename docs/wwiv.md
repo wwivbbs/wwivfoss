@@ -24,10 +24,11 @@ the socket and the caller.
 | | **DOSBox-X** (recommended) | **QEMU** |
 |---|---|---|
 | WWIV chain exec mode | "WWIVFOSS (Socket Port)" (or "Listen Socket Port" with `dosdoor.sh -r`) | "WWIVFOSS (Socket Port)" |
-| Door files | a normal directory on Linux | a DOS disk image |
-| Drop files reach DOS | the node's temp dir is mounted as T: | must be copied into an image |
+| Door files | a normal directory on Linux | a normal directory, copied onto a disk image for each call and changes copied back |
+| Drop files reach DOS | the node's temp dir is mounted as T: | copied onto a floppy shown as T: |
+| Nodes in one door at once | as many as the door supports | one (others are told it's in use) |
 | Caller hang-up | in-band, and DCD drops when the socket closes | in-band only (`WWIVFOSS -E`), with heartbeats |
-| Ready-made launcher | `dosdoor.sh` | not yet (see [QEMU](#qemu)) |
+| Ready-made launcher | `dosdoor.sh` | `qemudoor.sh` (see [QEMU](#qemu)) |
 
 Use DOSBox-X unless you have a reason not to. Everything below except the
 QEMU section assumes it. Both emulators are tested end to end with every
@@ -123,7 +124,9 @@ everything after the door directory is the DOS command, run from `C:\`
 Filename, for example `%N` (node number). Inside DOS the drop files are on
 T:, so pass `T:\CHAIN.TXT` rather than `%C` (which is the Linux path).
 
-The Filename holds at most 79 characters. If a command line doesn't fit,
+The Filename holds at most 79 characters (160 once WWIV
+[#1764](https://github.com/wwivbbs/wwiv/pull/1764) is merged). If a command
+line doesn't fit,
 use shorter paths (a symlink such as `/d` for `/wwiv/doors`) or put the DOS
 command in a batch file in the door directory.
 
@@ -210,6 +213,13 @@ FOSSIL call counts to the node temp directory when the door exits.
 | The door acts as if Ctrl-C or stray keys were pressed every 10 seconds | `dosdoor.sh -r` with the "WWIVFOSS (Socket Port)" mode: drop the `-r`. |
 | Random hang-ups, or garbage after a `ÿ` (character 255) | "Listen Socket Port" without `-r`: add `-r`, or switch the chain to "WWIVFOSS (Socket Port)". |
 
+To see exactly what WWIV and the door send each other, set
+`DOSDOOR_DOSBOX` (or `QEMUDOOR_QEMU`) to
+[`scripts/doortap.py`](../scripts/doortap.py) in wwivd's environment. It
+sits between the two and logs every byte both ways with timestamps (to
+`DOORTAP_LOG`, default `/tmp/doortap-<pid>.log`): heartbeats show as
+`ff 03`, and a hang-up as a 0-byte read.
+
 `DOSDOOR_ECHO=1` echoes the commands on the DOSBox-X screen. Leave it off
 in production: with echo on, DOSBox-X services the serial port late enough
 to lose incoming data during fast transfers.
@@ -246,14 +256,48 @@ QEMU's COM1 is a socket, either way round:
   software that connects out to the door. WWIV chains always listen
   themselves, so this isn't used with WWIV.
 
-What's missing is a ready-made launcher like `dosdoor.sh`. One would boot
-FreeDOS, attach the door's disk image (`scripts/mkdisk.py` makes one; see
-"Disk images" in the README for copying files in and out), copy the node's
-drop files from `%I` into a small image for DOS, and run `WWIVFOSS -P1 -H10`
-with the door. Keep in mind a disk image can only be used by one QEMU at a
-time, so a door shared by several nodes needs one image per node or `Multi
-user` off. See `scripts/test.sh` (QEMU door runs) for a working example of
-all the pieces.
+### qemudoor.sh
+
+`configs/wwiv/qemudoor.sh` is the QEMU launcher. It takes the same
+arguments as `dosdoor.sh`, and the door sees the same drives (C: the door,
+T: the drop files), so a door set up for one works with the other.
+
+1. Install QEMU and mtools:
+
+   ```
+   sudo apt-get install -y qemu-system-x86 mtools
+   ```
+
+2. Put `qemudoor.sh` next to `WWIVFOSS.EXE`, with its two disk images from
+   `scripts/setup-dev.sh`: a FreeDOS boot floppy with SWSUBST (which maps
+   T:), and an empty 32 MB hard disk.
+
+   ```
+   cp configs/wwiv/qemudoor.sh /wwiv/doors/
+   cp .devenv/freedos/qemudoor-boot.img /wwiv/doors/
+   cp .devenv/freedos/c.img /wwiv/doors/qemudoor-c.img
+   ```
+
+3. Add the chain with exec mode **WWIVFOSS (Socket Port)** and Multi user
+   **No**:
+
+   ```
+   /wwiv/doors/qemudoor.sh %Z %I /wwiv/doors/lord LORD.EXE %N /DREW
+   ```
+
+For each call, `qemudoor.sh` copies the door's directory onto a fresh copy
+of the empty disk (C:) and the drop files onto a floppy (B:, mapped to T:),
+boots FreeDOS, and runs `WWIVFOSS -P1 -E -H10` with the door. When QEMU
+exits, files the door created or changed are copied back into the door's
+directory, and changed drop files into `%I`. That happens even when WWIV
+kills the launcher on hang-up. Files the door deleted stay on Linux.
+
+Because of that copy back, only one node can be in a door at a time; a
+second caller gets "This door is in use on another node". The door has to
+fit on the 32 MB disk. `-r` is accepted for "Listen Socket Port", but under
+QEMU the door then never sees a hang-up: WWIV kills QEMU instead, as with
+DOSBox-X in that mode. `qemudoor.sh --help` lists its environment
+variables (`QEMUDOOR_LOG`, `QEMUDOOR_FLAGS`, ...).
 
 You can also run a classic FOSSIL (BNU, X00) under either emulator. It
 works for play, but under QEMU it never sees a hang-up. Likewise WWIVFOSS

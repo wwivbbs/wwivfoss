@@ -13,8 +13,8 @@ dos_run() {
 }
 
 # Drop files for door definitions. The caller is Rush Fan on COM1 at 19200.
-# Lines end in CR LF, or LF when DROP_EOL=lf (what WWIV writes on Linux,
-# wwivbbs/wwiv#1738; the dosdoor mode uses it so dosdoor.sh must convert).
+# Lines end in CR LF, or LF when DROP_EOL=lf (what WWIV before 5.10 build
+# 3814 writes on Linux, wwivbbs/wwiv#1738).
 drop_fmt() {
   # Literal escapes (echo doesn't expand them): $(...) would strip a real
   # trailing newline, so let the caller's printf turn these into line ends.

@@ -12,7 +12,9 @@
 #                              come in-band, and WWIV's heartbeats catch a
 #                              BBS that went away.
 #   "Listen Socket Port"       -r / --raw. WWIVFOSS runs with -E-. The door
-#                              never sees a hang-up; WWIV kills QEMU instead.
+#                              never sees a hang-up; WWIV stops QEMU instead
+#                              (SIGTERM after DOOR_EXIT_GRACE seconds; WWIV
+#                              before 5.10 build 3815 kills it at once).
 #
 # Example chain command line:
 #
@@ -104,12 +106,13 @@ work="$temp/qemudoor"
 rm -rf "$work"
 mkdir -p "$work/drop"
 
-# Drop files, as CR LF (WWIV on Linux writes LF; see dosdoor.sh).
+# Drop files. WWIV writes them with CR LF since 5.10 build 3814; for older
+# WWIV on Linux (LF), uncomment the conversion below (see dosdoor.sh).
 for f in "$temp"/*; do
   [ -f "$f" ] || continue
   case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
-    chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
-      sed 's/\r*$/\r/' "$f" > "$work/drop/$(basename "$f")" ;;
+    # chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
+    #   sed 's/\r*$/\r/' "$f" > "$work/drop/$(basename "$f")" ;;
     *.txt|*.def|*.sys|*.bbs|*.dat|*.inf|msginf)
       cp "$f" "$work/drop/" ;;
   esac
@@ -169,9 +172,12 @@ copy_back() {
 }
 
 # QEMU and the copy back run in a subshell that outlives this script: WWIV
-# SIGKILLs the door's process on hang-up, and the door's data must still be
-# copied back. If this script dies, the subshell stops QEMU (SIGTERM, which
-# QEMU handles cleanly) and finishes up.
+# may stop the door's process before QEMU exits (on hang-up WWIV 5.10 build
+# 3815 and later sends SIGTERM to the door's process group if it's still
+# running after DOOR_EXIT_GRACE, which this subshell ignores; older WWIV
+# SIGKILLs this script at once), and the door's data must still be copied
+# back. If this script dies, the subshell stops QEMU (SIGTERM, which QEMU
+# handles cleanly) and finishes up.
 main=$$
 # Alive and not a zombie (a SIGKILLed script stays one until WWIV reaps it).
 main_alive() {

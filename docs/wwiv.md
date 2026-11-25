@@ -86,9 +86,12 @@ WWIV writes all the common drop files for every chain:
 | `CALLINFO.BBS` | Wildcat 2.x |
 | `PCBOARD.SYS` | PCBoard |
 
-On Linux WWIV writes them with LF line endings
-([wwivbbs/wwiv#1738](https://github.com/wwivbbs/wwiv/issues/1738)); DOS
-doors need CR LF. `dosdoor.sh` converts them before starting the door.
+DOS doors need CR LF line endings. WWIV writes them that way since 5.10
+build 3814 ([wwivbbs/wwiv#1738](https://github.com/wwivbbs/wwiv/issues/1738));
+`DOOR32.SYS`, which only 32-bit doors read, keeps the platform's line
+endings. Older WWIV on Linux writes LF: uncomment the conversion in
+`dosdoor.sh` (and `qemudoor.sh`), or doors like LORD can't read their drop
+file.
 
 See [Door recipes](#door-recipes) for doors we've tested.
 
@@ -108,8 +111,8 @@ From the BBS doors menu (`.`), press `*` for ChainEdit (or use the sysop
 
 | Exec mode | Filename starts | What WWIV sends the door |
 |---|---|---|
-| **WWIVFOSS (Socket Port)** (recommended) | `dosdoor.sh %Z ...` | `FF` escaped, line state and a heartbeat (`FF 03`) every 10 s mixed in; on hang-up the door gets 10 s to exit |
-| Listen Socket Port | `dosdoor.sh -r %Z ...` | a plain byte stream; on hang-up WWIV kills the emulator at once ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)) |
+| **WWIVFOSS (Socket Port)** (recommended) | `dosdoor.sh %Z ...` | `FF` escaped, line state and a heartbeat (`FF 03`) every 10 s mixed in; on hang-up the door is told in-band and gets `DOOR_EXIT_GRACE` seconds (wwiv.ini, default 10) to exit |
+| Listen Socket Port | `dosdoor.sh -r %Z ...` | a plain byte stream; on hang-up WWIV closes the socket (DOSBox-X drops carrier) and the door gets `DOOR_EXIT_GRACE` seconds to exit ([#1735](https://github.com/wwivbbs/wwiv/issues/1735); before 5.10 build 3815 WWIV kills the emulator at once) |
 
 Use "Listen Socket Port" with `-r` (or `--raw`) only on WWIV versions
 without the WWIVFOSS mode (5.9 and older). Mixing them up breaks things:
@@ -192,8 +195,8 @@ JUNGLE.EXE
 
 Filename: `/wwiv/doors/dosdoor.sh %Z %I /wwiv/doors/jungle JUNGLE.BAT`
 
-The copy picks up the CR LF version, since `dosdoor.sh` converts the files
-in T: before DOS starts.
+WWIV writes `DORINFO1.DEF` with CR LF, so the copy is ready to use (on
+older WWIV, see [the note on line endings](#2-configure-the-door)).
 
 ## Troubleshooting
 
@@ -207,9 +210,9 @@ FOSSIL call counts to the node temp directory when the door exits.
 |---|---|
 | "Please wait..." and straight back to the menu | The door exited at once. Check the drop file path (T:\), the door's FOSSIL setting, and `dosbox.log`: `BIOS INT14: Unhandled call ... DX=ffff` means the door asked for port -1 (it couldn't read the COM port from the drop file). |
 | The door runs but the caller sees nothing | The door uses its own UART code instead of the FOSSIL, or a different COM port. With `DOSDOOR_FLAGS=-S...`, a STATS.TXT showing no `01`/`0B`/`19` (transmit) calls confirms it. |
-| Garbage or a skipped prompt as the door starts | The Enter typed after picking the door is forwarded to it ([#1737](https://github.com/wwivbbs/wwiv/issues/1737)). Mostly harmless. |
+| Garbage or a skipped prompt as the door starts | WWIV before 5.10 build 3812 forwards the Enter typed after picking the door to it ([#1737](https://github.com/wwivbbs/wwiv/issues/1737)). Mostly harmless. |
 | Typing feels laggy, transfers are slow | WWIV's socket bridge polls every 100 ms ([#1736](https://github.com/wwivbbs/wwiv/issues/1736)). |
-| A caller who drops loses progress | With "Listen Socket Port", WWIV kills the emulator the moment the caller hangs up, before the door can save ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)). Use "WWIVFOSS (Socket Port)", which gives the door 10 seconds. |
+| A caller who drops loses progress | The door didn't exit within `DOOR_EXIT_GRACE` seconds (wwiv.ini, default 10), and WWIV stopped it; raise it for doors that save slowly. WWIV before 5.10 build 3815 kills a "Listen Socket Port" door the moment the caller hangs up ([#1735](https://github.com/wwivbbs/wwiv/issues/1735)); use "WWIVFOSS (Socket Port)" there. Under QEMU, "Listen Socket Port" doors never see the hang-up, so they're always stopped. |
 | The door acts as if Ctrl-C or stray keys were pressed every 10 seconds | `dosdoor.sh -r` with the "WWIVFOSS (Socket Port)" mode: drop the `-r`. |
 | Random hang-ups, or garbage after a `ÿ` (character 255) | "Listen Socket Port" without `-r`: add `-r`, or switch the chain to "WWIVFOSS (Socket Port)". |
 
@@ -299,8 +302,9 @@ chain, though, so `qemudoor.sh` also locks the door directory: if two
 chains share it (say the same door under both launchers), the second
 caller gets "This door is in use on another node". The door has to fit on
 the 32 MB disk. `-r` is accepted for "Listen Socket Port", but under
-QEMU the door then never sees a hang-up: WWIV kills QEMU instead, as with
-DOSBox-X in that mode. `qemudoor.sh --help` lists its environment
+QEMU the door then never sees a hang-up: WWIV stops QEMU after
+`DOOR_EXIT_GRACE` seconds instead (and before 5.10 build 3815, kills it at
+once); the door's files are still copied back. `qemudoor.sh --help` lists its environment
 variables (`QEMUDOOR_LOG`, `QEMUDOOR_FLAGS`, ...).
 
 You can also run a classic FOSSIL (BNU, X00) under either emulator. It
@@ -312,7 +316,7 @@ with `-E-`, under QEMU, behaves like a classic FOSSIL.
 | Issue | State |
 |---|---|
 | [#1752](https://github.com/wwivbbs/wwiv/issues/1752) in-band line control, [#1753](https://github.com/wwivbbs/wwiv/issues/1753) heartbeats | Implemented as "WWIVFOSS (Socket Port)" (commits 699e771, fcd9072) |
-| [#1735](https://github.com/wwivbbs/wwiv/issues/1735) doors killed on hang-up | Fixed for "WWIVFOSS (Socket Port)" (10 s grace); "Listen Socket Port" still kills at once |
+| [#1735](https://github.com/wwivbbs/wwiv/issues/1735) doors killed on hang-up | Fixed in 5.10 build 3815: every socket door gets `DOOR_EXIT_GRACE` seconds (default 10) to exit, then SIGTERM to its process group |
 | [#1736](https://github.com/wwivbbs/wwiv/issues/1736) bridge latency | Open |
-| [#1737](https://github.com/wwivbbs/wwiv/issues/1737) leftover input forwarded to doors | Open |
-| [#1738](https://github.com/wwivbbs/wwiv/issues/1738) LF drop files | Open; `dosdoor.sh` works around it |
+| [#1737](https://github.com/wwivbbs/wwiv/issues/1737) leftover input forwarded to doors | Fixed in 5.10 build 3812 (Linux; Windows: [#1775](https://github.com/wwivbbs/wwiv/issues/1775)) |
+| [#1738](https://github.com/wwivbbs/wwiv/issues/1738) LF drop files | Fixed in 5.10 build 3814 |

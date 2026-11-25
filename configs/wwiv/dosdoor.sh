@@ -68,14 +68,17 @@ dir="$3"
 shift 3
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
-# WWIV on Linux writes drop files with LF line endings; DOS doors expect
-# CR LF (Turbo Pascal doors like LORD read the whole file as one line).
-for f in "$temp"/*; do
-  case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
-    chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
-      sed -i 's/\r*$/\r/' "$f" ;;
-  esac
-done
+# WWIV writes the DOS drop files with CR LF since 5.10 build 3814
+# (wwivbbs/wwiv#1738). Older WWIV on Linux writes LF, which DOS doors
+# misread (Turbo Pascal doors like LORD read the whole file as one line);
+# for those, uncomment this to convert them. DOOR32.SYS (32-bit doors only)
+# and PCBOARD.SYS (binary) are left alone either way.
+# for f in "$temp"/*; do
+#   case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
+#     chain.txt|dorinfo*.def|door.sys|callinfo.bbs|sfdoors.dat)
+#       sed -i 's/\r*$/\r/' "$f" ;;
+#   esac
+# done
 
 # "@echo off" matters beyond tidiness: with command echo on in autoexec,
 # DOSBox-X 2025.02 delayed the UART interrupt enough to overrun the receive

@@ -103,8 +103,8 @@ idle caller with heartbeats running doesn't.
 modes, and through `configs/wwiv/dosdoor.sh` exactly as a WWIV chain runs
 it, once for each exec mode (`dosdoor`: "WWIVFOSS (Socket Port)", in-band
 with heartbeats; `dosdoor-raw`: "Listen Socket Port", `dosdoor.sh -r`) and
-through `configs/wwiv/qemudoor.sh` (`qemudoor`), with drop files written
-with LF line endings in a node temp directory mounted as T:): Global War,
+through `configs/wwiv/qemudoor.sh` (`qemudoor`), with drop files in a node
+temp directory mounted as T:): Global War,
 LORD 4.06 (also with stray input at startup), OpenDoors' VOTEDOS,
 DoorDriver's Jungle, Food Fight 4.6, and a Zmodem round trip through FDSZ.
 Each run checks the door's output arrives, that it notices the hangup and

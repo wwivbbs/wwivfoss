@@ -50,8 +50,9 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 ## WWIV end-to-end (in progress)
 
 - [x] `configs/wwiv/dosdoor.sh`: runs a DOS door in DOSBox-X with WWIVFOSS
-      from a WWIV `SOCK_PORT` chain; converts WWIV's LF drop files to CR LF;
-      `DOSDOOR_LOG` for troubleshooting.
+      from a WWIV socket chain; `DOSDOOR_LOG` for troubleshooting. (It
+      converted WWIV's LF drop files to CR LF until WWIV fixed #1738; the
+      conversion is commented out for older WWIV.)
 - [x] `scripts/wwivsess.py`: scripted telnet session against a local WWIV
       without wwivd. LORD plays end to end through WWIV on Linux.
 - [x] Fixed: transmitter stall when a byte arrives as a door starts (lost
@@ -72,10 +73,13 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 - [x] Sysop guide (`docs/wwiv.md`): DOSBox-X setup, chains, per-door
       recipes, troubleshooting, QEMU and WWIV's "WWIVFOSS (Socket Port)"
       mode, and the QEMU launcher (`configs/wwiv/qemudoor.sh`).
-- WWIV issues filed: wwivbbs/wwiv#1735 (doors SIGKILLed on hangup), #1736
-  (bridge latency/throughput), #1737 (leftover input forwarded to doors),
-  #1738 (LF drop files on Linux), #1752 (in-band line control for -E
-  doors), #1753 (heartbeats).
+- WWIV issues filed: wwivbbs/wwiv#1752 (in-band line control for -E doors)
+  and #1753 (heartbeats), done as the "WWIVFOSS (Socket Port)" mode (#1760);
+  #1735 (doors SIGKILLed on hangup; fixed in 5.10 build 3815, #1776), #1737
+  (leftover input forwarded to doors; build 3812, #1773), #1738 (LF drop
+  files on Linux; build 3814, #1771). Still open: #1736 (bridge
+  latency/throughput) and #1775 (Windows: drain the caller's socket before
+  socket-handle doors, and Windows exec tests).
 
 ## Emulator setup
 
@@ -90,9 +94,10 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 
 - [ ] **Exec mode** that launches the emulator against the `ExecSocket`
       listen port (`%Z`) with a per-door config generated from a template.
-- [ ] **`-E` framing on the BBS side** for QEMU: double FF to the door,
-      decode `FF nn` from it, send `FF 00` when the caller drops, hang up
-      the caller on `FF 01`. DOSBox-X only needs the socket closed.
+- [x] **`-E` framing on the BBS side** for QEMU: the "WWIVFOSS (Socket
+      Port)" exec mode (wwivbbs/wwiv#1760) doubles FF to the door, decodes
+      `FF nn` from it, tells the door when the caller drops, returns the
+      caller when the door lowers DTR, and sends heartbeats.
 - [ ] **Ship WWIVFOSS** with WWIV the way `NETF125.ZIP` is shipped today.
 - [ ] **Remove SyncFoss** (`exec_cmdline_sync`, sbbsexec files) once the new
       driver covers its users; keep the "FOSSIL" exec mode name working.

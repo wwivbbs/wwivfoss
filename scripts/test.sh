@@ -22,8 +22,8 @@
 #             dosbox  DOSBox-X; WWIVFOSS -E- (raw stream, DCD follows the socket)
 #             dosdoor doors only: run through configs/wwiv/dosdoor.sh exactly
 #                     as a WWIV "WWIVFOSS (Socket Port)" chain does (in-band
-#                     framing and heartbeats; drop files written with LF in a
-#                     node temp dir mounted as T:; runner mode; the door's
+#                     framing and heartbeats; drop files in a node temp dir
+#                     mounted as T:; runner mode; the door's
 #                     errorlevel isn't checked)
 #             dosdoor-raw  the same with dosdoor.sh -r, as a "Listen Socket
 #                     Port" chain does (raw stream)
@@ -498,7 +498,7 @@ EOF
   dosdoor|dosdoor-raw)
     # Laid out like a WWIV install: dosdoor.sh and WWIVFOSS.EXE together
     # (mounted as W:), the door directory (C:), and a node temp directory
-    # holding LF drop files (T:), which WWIV passes as %I.
+    # holding the drop files (T:), which WWIV passes as %I.
     mkdir -p "$work/w" "$work/d" "$work/temp"
     raw_opt=""
     [ "$emu" = dosdoor-raw ] && raw_opt="-r"
@@ -506,7 +506,7 @@ EOF
     cp "$root/dos/wwivfoss.exe" "$work/w/WWIVFOSS.EXE"
     cp -r "$cache"/. "$work/d"/
     if declare -F door_dropfiles >/dev/null; then
-      DROP_EOL=lf door_dropfiles "$work/d" "$work/temp" T:
+      door_dropfiles "$work/d" "$work/temp" T:
     fi
     # shellcheck disable=SC2086  # DOOR_CMD is split into words, as WWIV does
     DOSDOOR_ECHO="${DOOR_DOSDOOR_ECHO:-}" \
@@ -517,7 +517,7 @@ EOF
     ;;
   qemudoor)
     # Laid out like a WWIV install: qemudoor.sh, WWIVFOSS.EXE and the two
-    # images together, the door directory, and a node temp dir of LF drop
+    # images together, the door directory, and a node temp dir of drop
     # files (%I), which qemudoor.sh shows the door as T:.
     mkdir -p "$work/w" "$work/d" "$work/temp"
     cp "$root/configs/wwiv/qemudoor.sh" "$work/w/qemudoor.sh"
@@ -526,7 +526,7 @@ EOF
     cp "$dev/freedos/c.img" "$work/w/qemudoor-c.img"
     cp -r "$cache"/. "$work/d"/
     if declare -F door_dropfiles >/dev/null; then
-      DROP_EOL=lf door_dropfiles "$work/d" "$work/temp" T:
+      door_dropfiles "$work/d" "$work/temp" T:
     fi
     hb=""
     [ -n "${HEARTBEAT:-}" ] && hb="-H$HEARTBEAT"

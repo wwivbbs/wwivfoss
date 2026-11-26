@@ -8,7 +8,9 @@
 # Chain exec mode: "Listen Socket Port". No FOSSIL is involved: DOS's
 # console is redirected to COM1 (CTTY COM1), and heartrelay.py, between
 # DOSBox-X and WWIV, turns heart codes into ANSI colors and
-# ^L into a screen clear.
+# ^L into a screen clear. CTTYFIX.COM (tools/cttyfix) is loaded first:
+# DOSBox-X's COM1 always reports a key waiting, which hangs chains that
+# flush the keyboard (Food Fight at its first screen clear).
 #
 # Example chain command line (Food Fight 2.00c, given CHAIN.TXT):
 #
@@ -20,6 +22,7 @@
 #       directory lines (17, 18: gfiles and data) are pointed at T:\, since
 #       WWIV 4 chains write there (the sysop log) and WWIV's own are Unix
 #       paths.
+#   W:  the directory holding this script and CTTYFIX.COM
 #
 # The caller's hang-up isn't passed on (chains like these don't check for
 # it): WWIV stops DOSBox-X after DOOR_EXIT_GRACE seconds (wwiv.ini).
@@ -27,7 +30,7 @@
 # Only under DOSBox-X: FreeDOS's COM driver under QEMU doesn't pass the
 # caller's keys to a program through CTTY.
 #
-# Needs dosbox-x and python3.
+# Needs dosbox-x and python3, and CTTYFIX.COM next to this script.
 #
 # Environment:
 #   DOSDOOR_DOSBOX   DOSBox-X binary (default: dosbox-x)
@@ -51,6 +54,7 @@ dir="$3"
 shift 3
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
+[ -f "$here/CTTYFIX.COM" ] || { echo "wwivchain: missing $here/CTTYFIX.COM" >&2; exit 1; }
 for d in "$temp" "$dir"; do
   [ -n "$d" ] && [ -d "$d" ] || { echo "wwivchain: not a directory: '$d'" >&2; exit 1; }
 done
@@ -87,8 +91,10 @@ serial1 = nullmodem server:127.0.0.1 port:$relay_port transparent:1
 @echo off
 mount c "$dir"
 mount t "$temp"
+mount w "$here"
 c:
 cd \\
+W:\\CTTYFIX.COM
 ctty com1
 $*
 ctty con

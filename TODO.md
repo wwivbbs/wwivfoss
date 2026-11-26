@@ -120,6 +120,54 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       `FlushBuffer()`, dropping up to 256 bytes of output on exit (we work
       around it with a two-tick delay in `uart_close`).
 
+## WWIV 4 chain emulation (WWIV4CHN)
+
+`tools/wwiv4chn` runs WWIV 3.x/4.x chains on WWIVFOSS. Reference: the WWIV
+4.24 source (EXTRN.C/RETURN.C `newintr1`, RETURN.C `funcs[]` and `init_r`,
+SKELETON.C, VARDEC.H `EFLAG_*`); 4.07-4.30 are in wwiv-private. The chain
+interface is the same from 4.24 through 4.30 (the last release): same
+function table and entry code, same EFLAG bits; 4.30 only added the 2Ch
+idle below. WWIV Software Services owns the WWIV 4 copyright, so its code
+can be reused here.
+
+- [x] **DOS intercepts**: INT 21h console I/O (01h 02h 06h 07h 08h 09h
+      0Ah 0Bh 0Ch, 3Fh/40h on the console) and INT 29h go to the FOSSIL;
+      heart codes become ANSI (WWIV's default colors), ^L a screen clear;
+      hang-up ends the chain; CHAIN.TXT Unix paths (lines 17, 18) point at
+      T:\. Food Fight 2.00c (a WWIV 3 chain) runs under DOSBox-X and QEMU.
+- [ ] **The rest of WWIV 4's output handling** (`outchr()`): tabs to 8
+      columns; ^O^O<letter> user-info codes (only some fields are in
+      CHAIN.TXT; print the rest empty, or have WWIV 5 pass more); pause
+      each screenful when the user has paging on; ANSI passed through.
+- [ ] **Abort and pause keys** while a chain prints: Ctrl-C ends it (WWIV
+      did this only with EFLAG_ABORT, so make it an option), Ctrl-S pauses.
+- [ ] **Idle on 2Ch (get time)** when no key is waiting, as WWIV 4.30
+      did (release a timeslice, then pass the call to DOS): chains that
+      busy-wait on the clock stop burning host CPU.
+- [ ] **Hang-up details**: function 01h returns ^C and 0Ah returns
+      `EXIT\r` (so a COMMAND.COM "chain" quits).
+- [ ] **Callable BBS functions** (WWIV 4.07+ chains, SKELETON.C style):
+      - Environment: `BBS=WWIV v4.30` (WWIV's own format; chains require
+        "WWIV" and read the digits as the version, >= 407) and `WWIV_FP=SSSS:OOOO` (4.21+); also point INT 6Ah
+        at the table for chains written for 4.07-4.20.
+      - Table of far pointers: 0 inli, 1 checka, 2 pla, 3 outchr, 4 outstr,
+        5 nl, 8 pl, 9 empty, 10 inkey (4.24 returns empty() here; match
+        it), 11 getkey, 12 input (upper case), 13 inputl, 14 yn, 15 ny,
+        16 ansic, 17 onek, 18 prt, 19 mpl.
+      - Calling convention: Turbo C `far interrupt` pointers. The chain
+        pushes C arguments right to left, then PUSHF/CALL FAR; the entry
+        returns with IRET and the caller pops the arguments. Large model:
+        strings are far pointers, int/char take 2 bytes; results in AX.
+      - Entries are asm stubs that read the arguments from the caller's
+        stack and call C on the shim's own stack (the chain's SS isn't
+        DGROUP).
+- [ ] **Hang-up handler (`funcs[20]`)**: a chain may store a far pointer
+      there. On hang-up, return from the next INT 21h into it, then force
+      4Ch after ~36 ticks (or the tick count the chain stored, up to 500).
+- [ ] **Tests**: a small test chain using the table and SKELETON's
+      interface (our own code), real 4.07+ chains, and the existing Food
+      Fight 2.00c run, in `scripts/test.sh` under both emulators.
+
 ## Packaging
 
 - [ ] **First release**: version tag, and a CI-built zip with WWIVFOSS.EXE,

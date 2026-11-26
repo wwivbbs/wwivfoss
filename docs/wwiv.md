@@ -181,13 +181,18 @@ WWIV heart codes (^C0-^C9). Run them under `WWIV4CHN.EXE`
 (`tools/wwiv4chn`, built by `scripts/build.sh`), which does WWIV's part on
 WWIVFOSS:
 
-- DOS console output goes to the caller, with heart codes turned into ANSI
-  colors (WWIV's default colors) and ^L into a screen clear. When
-  `CHAIN.TXT` says the caller has no ANSI (line 14 is `0`), heart codes are
-  dropped instead.
+- DOS console output goes to the caller through WWIV 4.30's output code:
+  heart codes become ANSI colors (WWIV's default colors), ^O^O codes print
+  the caller's name and the other user fields `CHAIN.TXT` has, tabs
+  expand, and ^L clears the screen. When `CHAIN.TXT` says the caller has
+  no ANSI (line 14 is `0`), heart codes are dropped instead.
 - DOS console input comes from the caller, and "is a key waiting?" calls
   answer truthfully.
-- When the caller hangs up, the chain's next console call ends it.
+- Chains for WWIV 4.07 and later that call the BBS's functions (`outstr`,
+  `input`, `yn`, `inli` and the rest, found through `WWIV_FP` or INT 6Ah
+  as in WWIV's SKELETON.C) get a working table of them.
+- When the caller hangs up, the chain's next console call ends it, or runs
+  the chain's hang-up handler if it set one, as under WWIV 4.
 - If an argument is a file named `CHAIN.TXT`, its gfiles and data
   directory lines (17, 18) are pointed at that file's directory (T:\) when
   they hold Unix paths: WWIV 4 chains write there (Food Fight writes its

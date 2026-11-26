@@ -79,7 +79,7 @@ setup for both), python3 the BBS side of every test, lrzsz the Zmodem test.
 ```
 scripts/setup-dev.sh     # Open Watcom v2, FreeDOS boot floppy, base C: disk
 scripts/build.sh         # dos/wwivfoss.exe, tools/fostest/fostest.exe,
-                         # tools/wwiv4chn/wwiv4chn.exe
+                         # tools/wwiv4chn/wwiv4chn.exe, .../w4test/w4test.exe
 ```
 
 ### 3. Run the tests
@@ -209,7 +209,8 @@ include/        FOSSIL constants and the host <-> DOS protocol header
 dos/            The driver/runner (WWIVFOSS.EXE)
 tools/fostest/  FOSTEST.EXE, a FOSSIL exerciser used as a test door
 tools/wwiv4chn/ WWIV4CHN.EXE, runs WWIV 3/4 chains (DOS console I/O, heart
-                codes) on the FOSSIL
+                codes, WWIV 4's function table) on the FOSSIL; w4test/ is
+                its test chain
 vdd/            Win32 NTVDM Virtual Device Driver (planned)
 configs/        Emulator templates (DOSBox-X, QEMU); wwiv/ has the WWIV
                 launchers dosdoor.sh (DOSBox-X) and qemudoor.sh (QEMU)

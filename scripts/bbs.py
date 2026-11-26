@@ -14,7 +14,9 @@ SCENARIO against FOSTEST:
             checks that the door notices and exits). $DOOR_EXPECT may list
             alternatives separated by "|" and matches with ANSI codes
             removed too. $DOOR_MIN_BYTES waits for that much output
-            instead of (or as well as) text. $DOOR_STRAY, if set,
+            instead of (or as well as) text. $DOOR_SCRIPT, if set, is a
+            conversation to have first ("< TEXT" waits, "> TEXT" sends,
+            one step a line). $DOOR_STRAY, if set,
             is sent when the door connects, as WWIV does (escapes like
             \\r ok; DOOR_STRAY_WHEN=output waits for its first output)
     zmodem  round trip with a Zmodem program in DOS (FDSZ): lrzsz sends
@@ -302,6 +304,24 @@ if scenario == "door":
     if min_bytes:
         door.wait_for(lambda: len(door.data) >= min_bytes, f"{min_bytes} bytes")
         print(f"ok - door sent at least {min_bytes} bytes")
+    # $DOOR_SCRIPT: a conversation, one step a line: "< TEXT" waits for
+    # TEXT (as DOOR_EXPECT), "> TEXT" sends it; backslash escapes allowed.
+    for step in os.environ.get("DOOR_SCRIPT", "").splitlines():
+        step = step.strip()
+        if not step:
+            continue
+        what = step[2:].encode().decode("unicode_escape").encode("latin-1")
+        if step.startswith("<"):
+            door.wait_for(lambda: what in door.data or what in door.plain(),
+                          repr(what))
+            print(f"ok - door sent {what!r}")
+            # Later steps look only at what comes after this.
+            door.data = door.data[door.data.find(what) + len(what):] \
+                if what in door.data else b""
+        elif step.startswith(">"):
+            door.send(what)
+        else:
+            fail(f"bad DOOR_SCRIPT step: {step!r}")
     if os.environ.get("DOOR_HANGUP") == "silent":
         # The BBS dies: heartbeats stop, the socket stays open. Only
         # WWIVFOSS -H can notice; wait for the door to exit.

@@ -401,6 +401,7 @@ export DOOR_STRAY="${DOOR_STRAY:-}"
 export DOOR_HANGUP="${DOOR_HANGUP:-}"
 export DOOR_STRAY_WHEN="${DOOR_STRAY_WHEN:-}"
 export DOOR_MIN_BYTES="${DOOR_MIN_BYTES:-}"
+export DOOR_SCRIPT="${DOOR_SCRIPT:-}"
 bbs_args=("$port" "$bbs_scenario" "$framing" "$timeout_secs" "$work/ready")
 case "$emu" in qemu|qemudoor) bbs_args+=("$monitor_port") ;; esac
 python3 "$root/scripts/bbs.py" "${bbs_args[@]}" &
@@ -591,6 +592,16 @@ if [ "${tx:-0}" -eq 0 ]; then
   fail "WWIVFOSS handled no transmit calls ($calls calls total): door bypassed the FOSSIL?"
 fi
 echo "ok - $calls FOSSIL calls, $tx of them transmit"
+# door_check DOORDIR, if the definition has one: checks the files the door
+# left behind (under QEMU, copied out of its disk image first).
+if [ -n "$door" ] && declare -F door_check >/dev/null; then
+  doordir="$work/d"
+  if [ "$emu" = qemu ]; then
+    doordir="$work/c"
+    mcopy -s -n -o -i "$work/c.img@@32256" '::/*' "$doordir/" 2>/dev/null || true
+  fi
+  door_check "$doordir" || fail "door_check failed"
+fi
 if [ "$mode" = resident ]; then
   echo "ok - WWIVFOSS -U unloaded; FOSTEST then found no FOSSIL"
 fi

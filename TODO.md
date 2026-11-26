@@ -114,6 +114,13 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       `twocalls` test (qemu, resident: call, hang up, call again) passes,
       and fails as it should when call 2 omits `FF 03` (FOSTEST /W times
       out waiting for a caller). WWIV side: noted on wwivbbs/wwiv#1752.
+- [ ] **Stray 03 at startup (QEMU, in-band)**: the BBS sends FF 03 as
+      soon as QEMU connects, before DOS boots. `uart_open()` clears the
+      FIFO (`FCR_ENABLE_CLEAR`); if the FF is in the UART then and the 03
+      not yet, the FF is lost and the 03 reaches the door as data (^C).
+      Seen twice in ~10 `door:w4test` runs under qemu/qemudoor (W4TEST's
+      `pla()` aborted); not reproduced on purpose yet. Likely fix: drain
+      RBR through the in-band decoder before clearing the FIFO.
 - [ ] **Measure idle CPU**: confirm the `HLT` / INT 2Fh idling keeps host
       CPU low while a door waits for input, in both emulators.
 - [ ] **Report the DOSBox-X bug** upstream: `~CNullModem` never calls
@@ -127,46 +134,43 @@ runner and resident × echo/hangup/dtr) that runs in CI.
 SKELETON.C, VARDEC.H `EFLAG_*`); 4.07-4.30 are in wwiv-private. The chain
 interface is the same from 4.24 through 4.30 (the last release): same
 function table and entry code, same EFLAG bits; 4.30 only added the 2Ch
-idle below. WWIV Software Services owns the WWIV 4 copyright, so its code
+idle. WWIV Software Services owns the WWIV 4 copyright, so its code
 can be reused here.
 
 - [x] **DOS intercepts**: INT 21h console I/O (01h 02h 06h 07h 08h 09h
       0Ah 0Bh 0Ch, 3Fh/40h on the console) and INT 29h go to the FOSSIL;
-      heart codes become ANSI (WWIV's default colors), ^L a screen clear;
       hang-up ends the chain; CHAIN.TXT Unix paths (lines 17, 18) point at
       T:\. Food Fight 2.00c (a WWIV 3 chain) runs under DOSBox-X and QEMU.
-- [ ] **The rest of WWIV 4's output handling** (`outchr()`): tabs to 8
-      columns; ^O^O<letter> user-info codes (only some fields are in
-      CHAIN.TXT; print the rest empty, or have WWIV 5 pass more); pause
-      each screenful when the user has paging on; ANSI passed through.
-- [ ] **Abort and pause keys** while a chain prints: Ctrl-C ends it (WWIV
-      did this only with EFLAG_ABORT, so make it an option), Ctrl-S pauses.
-- [ ] **Idle on 2Ch (get time)** when no key is waiting, as WWIV 4.30
-      did (release a timeslice, then pass the call to DOS): chains that
-      busy-wait on the clock stop burning host CPU.
-- [ ] **Hang-up details**: function 01h returns ^C and 0Ah returns
-      `EXIT\r` (so a COMMAND.COM "chain" quits).
-- [ ] **Callable BBS functions** (WWIV 4.07+ chains, SKELETON.C style):
-      - Environment: `BBS=WWIV v4.30` (WWIV's own format; chains require
-        "WWIV" and read the digits as the version, >= 407) and `WWIV_FP=SSSS:OOOO` (4.21+); also point INT 6Ah
-        at the table for chains written for 4.07-4.20.
-      - Table of far pointers: 0 inli, 1 checka, 2 pla, 3 outchr, 4 outstr,
-        5 nl, 8 pl, 9 empty, 10 inkey (4.24 returns empty() here; match
-        it), 11 getkey, 12 input (upper case), 13 inputl, 14 yn, 15 ny,
-        16 ansic, 17 onek, 18 prt, 19 mpl.
-      - Calling convention: Turbo C `far interrupt` pointers. The chain
-        pushes C arguments right to left, then PUSHF/CALL FAR; the entry
-        returns with IRET and the caller pops the arguments. Large model:
-        strings are far pointers, int/char take 2 bytes; results in AX.
-      - Entries are asm stubs that read the arguments from the caller's
-        stack and call C on the shim's own stack (the chain's SS isn't
-        DGROUP).
-- [ ] **Hang-up handler (`funcs[20]`)**: a chain may store a far pointer
-      there. On hang-up, return from the next INT 21h into it, then force
-      4Ch after ~36 ticks (or the tick count the chain stored, up to 500).
-- [ ] **Tests**: a small test chain using the table and SKELETON's
-      interface (our own code), real 4.07+ chains, and the existing Food
-      Fight 2.00c run, in `scripts/test.sh` under both emulators.
+- [x] **WWIV 4.30's `outchr()`**: heart codes, ^O^O<letter> user fields
+      (the ones CHAIN.TXT has: N R I A X g L S; the rest print empty, ^O^O!
+      pauses), tabs to 8 columns, ANSI passed through and followed for the
+      color and column; `nl()` goes back to color 0 after `ansic()`.
+- [x] **Idle on 2Ch (get time)**: with no key waiting, a FOSSIL status
+      poll first, so WWIVFOSS idles as for any polling door.
+- [x] **Hang-up details**: 01h returns ^C, 0Ah returns `EXIT\r`, 3Fh
+      returns 0 bytes.
+- [x] **Callable BBS functions** (WWIV 4.07+ chains, SKELETON.C style):
+      `BBS=WWIV v4.30`, `WWIV_FP=SSSS:OOOO`, and INT 6Ah for 4.07-4.20;
+      all 18 functions in slots 0-19, ported from RETURN.C (slot 10, inkey,
+      returns empty() as WWIV 4 did). Entries (`api.asm`) take Turbo C
+      `far interrupt` calls and switch to WWIV4CHN's own stack.
+- [x] **Hang-up handler (slot 20)**: the next console call returns into
+      it; 4Ch after 36 ticks or what the chain stores there (up to 500).
+      A chain that only calls the table is ended 10 s after the hang-up.
+- [x] **Tests**: `scripts/test.sh EMU door:w4test` runs W4TEST
+      (`tools/wwiv4chn/w4test`, our own large-model chain calling every
+      function as Turbo C did, and the DOS calls) through a scripted
+      conversation (`DOOR_SCRIPT`), and checks that its hang-up handler ran.
+- [ ] **Paging**: WWIV 4 paused each screenful when the user had "pause
+      on screen" on. WWIV 5 doesn't pass that setting in CHAIN.TXT; add it
+      (or a WWIV4CHN option) if a chain needs it.
+- [ ] **Abort keys in DOS output**: WWIV 4 checked only the local keyboard
+      (`checka2()`, INT 16h) for ^C and ^S during DOS output; callers
+      could abort only where a chain used `checka()`/`pla()` (done). An
+      option to let callers ^C out of DOS output, if wanted.
+- [x] **Food Fight 2.00c** as `tests/doors/foodfite2.sh` (local only:
+      not downloadable; `FOODFITE2_DIR`, default /wwiv/doors/foodfite2).
+- [ ] **More tests**: real WWIV 4.07+ chains that use the table.
 
 ## Packaging
 

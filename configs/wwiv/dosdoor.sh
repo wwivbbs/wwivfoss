@@ -30,7 +30,9 @@
 #   T:  this node's WWIV temp directory (%I), holding the drop files WWIV
 #       writes: CHAIN.TXT, DORINFO1.DEF, DOOR.SYS, DOOR32.SYS, ...
 #       Point the door's drop file path at T:\
-#   W:  the directory holding this script and WWIVFOSS.EXE
+#   W:  the directory holding this script, WWIVFOSS.EXE and WWIV4CHN.EXE;
+#       on PATH, so a WWIV 3/4 chain runs as WWIV4CHN.EXE CHAIN.COM ...
+#       (see docs/wwiv.md)
 #
 # Environment:
 #   DOSDOOR_DOSBOX   DOSBox-X binary (default: dosbox-x)
@@ -101,6 +103,7 @@ $echo_cmd
 mount c "$dir"
 mount t "$temp"
 mount w "$here"
+set PATH=%PATH%;W:\\
 c:
 cd \\
 W:\\WWIVFOSS.EXE -P1 $line_flags ${DOSDOOR_FLAGS:-} $*

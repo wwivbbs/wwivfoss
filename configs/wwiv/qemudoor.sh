@@ -28,7 +28,9 @@
 #   T:  the drop files from this node's WWIV temp directory (%I), on a
 #       floppy in B: (SWSUBST T: B:\). Point the door's drop file path at
 #       T:\, as with dosdoor.sh. Changed files are copied back to %I.
-#   A:  the FreeDOS boot floppy, with WWIVFOSS.EXE
+#   A:  the FreeDOS boot floppy, with WWIVFOSS.EXE and WWIV4CHN.EXE (if
+#       it's next to this script); on PATH, so a WWIV 3/4 chain runs as
+#       WWIV4CHN.EXE CHAIN.COM ... (see docs/wwiv.md)
 #
 # One node at a time per door: the copy back would undo another node's
 # changes. Set the chain's Multi user to No and WWIV enforces it per chain;
@@ -37,6 +39,7 @@
 #
 # Next to this script (or see QEMUDOOR_BOOT / QEMUDOOR_DISK):
 #   WWIVFOSS.EXE
+#   WWIV4CHN.EXE        (optional) for WWIV 3/4 chains
 #   qemudoor-boot.img   .devenv/freedos/qemudoor-boot.img from setup-dev.sh
 #   qemudoor-c.img      .devenv/freedos/c.img (empty 32 MB FAT16 disk)
 #
@@ -137,6 +140,7 @@ printf '\xb0\x00\xe6\xf4\xcd\x20' > "$work/QEXIT.COM"
 {
   echo "@echo off"
   echo "set COMSPEC=A:\\FREEDOS\\BIN\\COMMAND.COM"
+  echo "set PATH=A:\\;A:\\FREEDOS\\BIN"
   echo "A:\\SWSUBST T: B:\\ > NUL"
   echo "C:"
   echo "cd \\"
@@ -145,6 +149,9 @@ printf '\xb0\x00\xe6\xf4\xcd\x20' > "$work/QEXIT.COM"
 } | sed 's/$/\r/' > "$work/DOOR.BAT"
 mcopy -o -i "$work/boot.img" "$work/FDCONFIG.SYS" "$work/DOOR.BAT" \
   "$work/QEXIT.COM" "$here/WWIVFOSS.EXE" ::/
+if [ -f "$here/WWIV4CHN.EXE" ]; then
+  mcopy -o -i "$work/boot.img" "$here/WWIV4CHN.EXE" ::/
+fi
 
 log=/dev/null
 if [ -n "${QEMUDOOR_LOG:-}" ]; then

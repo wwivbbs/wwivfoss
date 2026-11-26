@@ -1,14 +1,14 @@
 #!/bin/sh
-# Build WWIVFOSS.EXE, FOSTEST.EXE and CTTYFIX.COM with the Open Watcom from
+# Build WWIVFOSS.EXE, FOSTEST.EXE and WWIV4CHN.EXE with the Open Watcom from
 # .devenv/ (run scripts/setup-dev.sh first), or with one already on
 # PATH/WATCOM.
 #
-#   scripts/build.sh          build WWIVFOSS.EXE, FOSTEST.EXE and CTTYFIX.COM
+#   scripts/build.sh          build WWIVFOSS.EXE, FOSTEST.EXE, WWIV4CHN.EXE
 #   scripts/build.sh clean    remove build outputs
 #   scripts/build.sh --help   this help
 #
 # Outputs: dos/wwivfoss.exe (+ .map), tools/fostest/fostest.exe,
-#          tools/cttyfix/cttyfix.com
+#          tools/wwiv4chn/wwiv4chn.exe
 set -eu
 
 case "${1:-}" in
@@ -37,4 +37,4 @@ fi
 target="${1:-}"
 (cd "$root/dos" && wmake -h $target)
 (cd "$root/tools/fostest" && wmake -h $target)
-(cd "$root/tools/cttyfix" && wmake -h $target)
+(cd "$root/tools/wwiv4chn" && wmake -h $target)

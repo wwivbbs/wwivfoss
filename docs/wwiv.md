@@ -172,6 +172,36 @@ port: set them to `T:\DOOR.SYS` and `PORT:F:1` (FOSSIL, port 1).
 
 Filename: `/wwiv/doors/dosdoor.sh %Z %I /wwiv/doors/foodfite FOODFITE.EXE FOODFITE.CFG`
 
+### WWIV 3 and 4 chains (Food Fight 2.00c)
+
+Chains written for WWIV 3.x and 4.x (`.CHN` or `.COM` files, often Turbo
+Pascal 3) don't use a FOSSIL: WWIV ran them with "DOS interrupts" on and
+sent their DOS console I/O to the modem, and they color their text with
+WWIV heart codes (^C0-^C9). Run them under `WWIV4CHN.EXE`
+(`tools/wwiv4chn`, built by `scripts/build.sh`), which does WWIV's part on
+WWIVFOSS:
+
+- DOS console output goes to the caller, with heart codes turned into ANSI
+  colors (WWIV's default colors) and ^L into a screen clear. When
+  `CHAIN.TXT` says the caller has no ANSI (line 14 is `0`), heart codes are
+  dropped instead.
+- DOS console input comes from the caller, and "is a key waiting?" calls
+  answer truthfully.
+- When the caller hangs up, the chain's next console call ends it.
+- If an argument is a file named `CHAIN.TXT`, its gfiles and data
+  directory lines (17, 18) are pointed at that file's directory (T:\) when
+  they hold Unix paths: WWIV 4 chains write there (Food Fight writes its
+  sysop log).
+
+Put `WWIV4CHN.EXE` next to `dosdoor.sh`/`qemudoor.sh` (both put their own
+directory on the DOS PATH), use the "WWIVFOSS (Socket Port)" exec mode, and
+pass the chain `CHAIN.TXT` the way WWIV 4 did:
+
+Filename: `/wwiv/doors/dosdoor.sh %Z %I /wwiv/doors/foodfite2 WWIV4CHN.EXE FOODFITE.COM T:\CHAIN.TXT`
+
+The same with `qemudoor.sh` runs it under QEMU. Only programs that use DOS
+for the screen and keyboard work, which was also true under WWIV 4.
+
 ### OpenDoors doors
 
 OpenDoors-based doors read `DOOR.CFG`. Set the drop file directory with

@@ -8,6 +8,8 @@ READY_FILE once listening, accepts the emulator's connection to COM1 and runs
 SCENARIO against FOSTEST:
 
     echo    banner, echo, send Q, expect BYE
+    splitff (inband) echo, but the first FF 03 is split: FF at connect, 03
+            after the banner; the 03 must not reach the door as data
     hangup  banner, echo, then the caller drops
     dtr     banner, echo, send H; the door lowers DTR and we must see it
     door    a real door: wait for $DOOR_EXPECT, then hang up (the test
@@ -142,6 +144,11 @@ class Door:
         with self.lock:
             self.conn.sendall(data)
 
+    def send_raw(self, data):
+        """Sends data as is, without in-band escaping."""
+        with self.lock:
+            self.conn.sendall(data)
+
     def start_heartbeat(self, seconds):
         """Sends FF 03 every `seconds` until stop_heartbeat()."""
         def beat():
@@ -160,13 +167,17 @@ class Door:
     def stop_heartbeat(self):
         self.beating.clear()
 
-    def start_call(self):
+    def start_call(self, split=False):
         """With in-band framing, the BBS reports RTS|DTR up first on every
         connection (foss_protocol.h): after a hangup WWIVFOSS keeps the UART
-        in loopback until it sees DTR again."""
+        in loopback until it sees DTR again. With split, only the FF goes
+        now; the caller sends the rest later."""
         if inband:
             with self.lock:
-                self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
+                if split:
+                    self.conn.sendall(bytes([ESC]))
+                else:
+                    self.conn.sendall(bytes([ESC, LINE_RTS | LINE_DTR]))
 
     def hang_up(self):
         self.stop_heartbeat()
@@ -250,7 +261,7 @@ except socket.timeout:
     fail("the emulator never connected")
 conn.settimeout(1)
 door = Door(conn)
-door.start_call()
+door.start_call(split=scenario == "splitff")
 # Like WWIV, send heartbeats to in-band doors (every 10 s, WWIVFOSS's -H
 # default) unless HEARTBEAT says otherwise; HEARTBEAT=0 turns them off.
 heartbeat = int(os.environ.get("HEARTBEAT") or (10 if inband else 0))
@@ -347,11 +358,20 @@ if scenario == "door":
 door.expect("FOSTEST ready")
 print("ok - banner received via FOSSIL block write")
 
+if scenario == "splitff":
+    # The rest of the first FF 03, long after the FF: WWIVFOSS must have
+    # kept the FF that was waiting in the UART when it started, so the 03
+    # is line state, not a ^C for the door.
+    door.send_raw(bytes([LINE_RTS | LINE_DTR]))
 door.send(b"hello\r")
 door.expect("hello")
+if scenario == "splitff":
+    if b"\x03" in door.data:
+        fail("the 03 of a split FF 03 reached the door as data")
+    print("ok - the FF waiting at startup was kept; its 03 was line state")
 print("ok - echo via FOSSIL receive/transmit")
 
-if scenario == "echo":
+if scenario in ("echo", "splitff"):
     door.send(b"Q")
     door.expect("BYE")
     print("ok - BYE received")

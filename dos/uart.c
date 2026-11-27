@@ -249,8 +249,40 @@ static int uart_open(void) {
     return 0;
   }
 
-  _disable();
   outp(base + IER, 0);
+  outp(base + LCR, 0x03);  /* DLAB off: offset 0 is RBR */
+
+  rx_head = rx_tail = 0;
+  rx_lost = 0;
+  tx_head = tx_tail = 0;
+  tx_busy = 0;
+  remote_lines = WWIVFOSS_LINE_RTS | WWIVFOSS_LINE_DTR;
+  rx_escape = 0;
+  last_rx_tick = *bios_ticks;
+  /*
+   * Take in what's already arriving before touching the FIFO: with -E the
+   * BBS sends FF 03 as soon as the emulator connects, before DOS boots,
+   * and the FIFO clear below drops whatever the UART holds (QEMU empties
+   * the FIFOs whenever FIFO enable changes). Losing just the FF passes the
+   * 03 to the door as data (a ^C); losing just the 03 leaves the decoder
+   * waiting for a line state and takes the BBS's next byte as one. So
+   * read through the in-band decoder until the line has been quiet for
+   * two timer ticks (at most a second), with interrupts on for the timer;
+   * the pair is then whole on one side of the clear. Data bytes are
+   * discarded below, as before.
+   */
+  {
+    unsigned long start = *bios_ticks;
+    unsigned long quiet = start;
+    while (*bios_ticks - quiet < 2 && *bios_ticks - start < 18) {
+      if (inp(base + LSR) & LSR_DR) {
+        rx_drain();
+        quiet = *bios_ticks;
+      }
+    }
+  }
+
+  _disable();
   /* 115200 8N1. Emulators ignore the divisor; real hardware won't. */
   outp(base + LCR, 0x80);
   outp(base + DLL, 1);
@@ -265,13 +297,6 @@ static int uart_open(void) {
   irq_was_masked = (unsigned char)(mask & irq_bit);
   outp(PIC1_MASK, mask & ~irq_bit);
 
-  rx_head = rx_tail = 0;
-  rx_lost = 0;
-  tx_head = tx_tail = 0;
-  tx_busy = 0;
-  remote_lines = WWIVFOSS_LINE_RTS | WWIVFOSS_LINE_DTR;
-  rx_escape = 0;
-  last_rx_tick = *bios_ticks;
   rx_drain();
   rx_head = rx_tail = 0;
   outp(base + MCR, MCR_DTR | MCR_RTS | MCR_OUT2);

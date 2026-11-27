@@ -3,7 +3,7 @@
 # connected to a TCP socket, with scripts/bbs.py playing the BBS.
 #
 #   scripts/test.sh [EMULATOR] [SCENARIO] [MODE]
-#   scripts/test.sh all      FOSTEST matrix, 14 runs (what CI runs)
+#   scripts/test.sh all      FOSTEST matrix, 21 runs (what CI runs)
 #   scripts/test.sh doors    every door in tests/doors/: qemu and dosbox in
 #                            both modes, plus dosdoor (local only; not in CI)
 #   scripts/test.sh --help   this help
@@ -30,6 +30,9 @@
 #             qemudoor  doors only: through configs/wwiv/qemudoor.sh as a
 #                     "WWIVFOSS (Socket Port)" chain runs it
 #   SCENARIO  echo    type text, Q quits; expect errorlevel 0 (default)
+#             splitff (qemu) echo, with the BBS's first FF 03 split: FF at
+#                     connect (waiting in the UART when WWIVFOSS starts), 03
+#                     after the banner; the 03 must be line state, not data
 #             hangup  caller drops mid-door; expect errorlevel 2
 #             dtr     door hangs up via FOSSIL 06h; expect errorlevel 3
 #                     (qemu only: needs in-band framing to observe DTR)
@@ -88,7 +91,7 @@ if [ "$emu" = all ]; then
   rc=0
   failed=""
   for m in runner resident; do
-    for combo in qemu:echo qemu:hangup qemu:dtr qemu:funcs qemu:deadbbs \
+    for combo in qemu:echo qemu:splitff qemu:hangup qemu:dtr qemu:funcs qemu:deadbbs \
                  qemu:hbidle dosbox:echo dosbox:hangup dosbox:funcs; do
       e="${combo%%:*}"
       s="${combo##*:}"
@@ -158,6 +161,11 @@ case "$scenario" in
     want_errorlevel="$DOOR_HANGUP_ERRORLEVEL"
     ;;
   echo|funcs|speed|hbidle) want_errorlevel=0 ;;
+  splitff)
+    want_errorlevel=0
+    [ "$emu" = qemu ] || { echo "splitff needs in-band framing (qemu)" >&2; exit 1; }
+    export HEARTBEAT=0  # a heartbeat's FF 03 would complete the split pair
+    ;;
   deadbbs) want_errorlevel=2 ;;
   twocalls)
     want_errorlevel=0  # call 2; call 1 must end with 2 (carrier lost)

@@ -141,8 +141,8 @@ int main(void) {
   outstr("MPL");
   mpl(5);
   nl();
-  /* Input nobody typed would abort pla() below; show it instead. Seen
-     under QEMU: a 03 from the BBS's first in-band FF 03 (see TODO.md). */
+  /* Input nobody typed would abort pla() below; show it instead. (Seen
+     under QEMU before WWIVFOSS kept the BBS's first in-band FF 03 whole.) */
   while (!empty()) {
     say("STRAY %d", getkey());
   }

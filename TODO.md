@@ -114,13 +114,12 @@ runner and resident × echo/hangup/dtr) that runs in CI.
       `twocalls` test (qemu, resident: call, hang up, call again) passes,
       and fails as it should when call 2 omits `FF 03` (FOSTEST /W times
       out waiting for a caller). WWIV side: noted on wwivbbs/wwiv#1752.
-- [ ] **Stray 03 at startup (QEMU, in-band)**: the BBS sends FF 03 as
-      soon as QEMU connects, before DOS boots. `uart_open()` clears the
-      FIFO (`FCR_ENABLE_CLEAR`); if the FF is in the UART then and the 03
-      not yet, the FF is lost and the 03 reaches the door as data (^C).
-      Seen twice in ~10 `door:w4test` runs under qemu/qemudoor (W4TEST's
-      `pla()` aborted); not reproduced on purpose yet. Likely fix: drain
-      RBR through the in-band decoder before clearing the FIFO.
+- [x] **Stray 03 at startup (QEMU, in-band)**: the BBS sends FF 03 as
+      soon as QEMU connects; `uart_open()`'s FIFO clear could drop a
+      waiting FF and pass the 03 to the door as ^C (or drop the 03 and take
+      the BBS's next byte as line state). Fixed: it first reads through the
+      in-band decoder until the line is quiet for 2 ticks (at most 1 s).
+      `scripts/test.sh qemu splitff` (in the CI matrix) splits the pair.
 - [ ] **Measure idle CPU**: confirm the `HLT` / INT 2Fh idling keeps host
       CPU low while a door waits for input, in both emulators.
 - [ ] **Report the DOSBox-X bug** upstream: `~CNullModem` never calls

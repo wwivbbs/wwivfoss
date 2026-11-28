@@ -17,6 +17,7 @@ DOOR_STRAY='\r\x00'
 # LORD shows random intro screens, so check volume instead of text: the
 # stall stopped output at ~60 bytes; a healthy start sends well over 1 KB.
 DOOR_EXPECT=
+DOOR_SCRIPT=
 DOOR_MIN_BYTES=1000
 # Run as node 2, as WWIV's first telnet node would (wwivd starts at 2).
 DOOR_CMD="LORD.EXE 2 /DREW"

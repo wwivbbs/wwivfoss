@@ -17,10 +17,14 @@ SCENARIO against FOSTEST:
             alternatives separated by "|" and matches with ANSI codes
             removed too. $DOOR_MIN_BYTES waits for that much output
             instead of (or as well as) text. $DOOR_SCRIPT, if set, is a
-            conversation to have first ("< TEXT" waits, "> TEXT" sends,
-            one step a line). $DOOR_STRAY, if set,
-            is sent when the door connects, as WWIV does (escapes like
-            \\r ok; DOOR_STRAY_WHEN=output waits for its first output)
+            conversation to have first, one step a line: "< TEXT" waits
+            for TEXT (alternatives separated by "|", "\\|" for a literal
+            one), "> TEXT" sends it, "* SECONDS TEXT" sends TEXT every
+            SECONDS during the next "<" wait (for a key at a screen whose
+            text varies); backslash escapes like \\r work in all three.
+            $DOOR_STRAY, if set, is sent when the door connects, as WWIV
+            does (escapes like \\r ok; DOOR_STRAY_WHEN=output waits for
+            its first output)
     zmodem  round trip with a Zmodem program in DOS (FDSZ): lrzsz sends
             $ZM_DIR/DOWN.BIN, DOS receives it and sends it back, and the
             copy that returns must match byte for byte
@@ -99,10 +103,16 @@ class Door:
                 out.append(b)
         return bytes(out)
 
-    def wait_for(self, done, what):
+    def wait_for(self, done, what, poke=None):
+        """poke: (seconds, data) to send every that many seconds while
+        waiting, for doors that want a key at a screen of unknown text."""
+        last_poke = time.monotonic()
         while not done():
             if time.monotonic() > deadline:
                 fail(f"timed out waiting for {what}")
+            if poke and time.monotonic() - last_poke >= poke[0]:
+                self.send(poke[1])
+                last_poke = time.monotonic()
             try:
                 chunk = self.conn.recv(4096)
             except socket.timeout:
@@ -111,21 +121,42 @@ class Door:
                 fail(f"connection closed while waiting for {what}")
             self._feed(chunk)
 
+    ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
+
     def plain(self):
         """The data received so far with ANSI escape sequences removed."""
-        return re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", self.data)
+        return self.ANSI.sub(b"", self.data)
+
+    def drop_through(self, what):
+        """Drops the data up to and including the first WHAT, found in the
+        raw data or (mapped back to it) with ANSI codes removed."""
+        at = self.data.find(what)
+        if at >= 0:
+            self.data = self.data[at + len(what):]
+            return
+        # Index in the raw data of each byte of plain().
+        raw, start = [], 0
+        for m in self.ANSI.finditer(self.data):
+            raw.extend(range(start, m.start()))
+            start = m.end()
+        raw.extend(range(start, len(self.data)))
+        at = bytes(self.data[i] for i in raw).find(what)
+        self.data = self.data[raw[at + len(what) - 1] + 1:] if at >= 0 else b""
 
     def expect(self, text):
         if isinstance(text, str):
             text = text.encode()
         self.wait_for(lambda: text in self.data, repr(text))
 
-    def expect_any(self, alternatives):
-        """Waits until any of the "|"-separated texts appears, in the raw
-        data or with ANSI codes removed (doors color single letters)."""
-        wants = [a.encode() for a in alternatives.split("|")]
+    def expect_any(self, alternatives, poke=None):
+        """Waits until any of the texts appears, in the raw data or with
+        ANSI codes removed (doors color single letters). ALTERNATIVES is
+        a list, or a string with the texts separated by "|"."""
+        if isinstance(alternatives, str):
+            alternatives = alternatives.split("|")
+        wants = [w.encode() if isinstance(w, str) else w for w in alternatives]
         self.wait_for(lambda: any(w in self.data or w in self.plain() for w in wants),
-                      " or ".join(repr(w) for w in wants))
+                      " or ".join(repr(w) for w in wants), poke)
         return next(w for w in wants if w in self.data or w in self.plain())
 
     def expect_ok(self, name):
@@ -315,24 +346,52 @@ if scenario == "door":
     if min_bytes:
         door.wait_for(lambda: len(door.data) >= min_bytes, f"{min_bytes} bytes")
         print(f"ok - door sent at least {min_bytes} bytes")
-    # $DOOR_SCRIPT: a conversation, one step a line: "< TEXT" waits for
-    # TEXT (as DOOR_EXPECT), "> TEXT" sends it; backslash escapes allowed.
+    # $DOOR_SCRIPT: see the usage text at the top.
+    def unescape(text):
+        return text.encode().decode("unicode_escape").encode("latin-1")
+
+    def alternatives(text):
+        """Splits TEXT on "|" but not "\\|", then unescapes each part."""
+        parts = [""]
+        i = 0
+        while i < len(text):
+            if text[i] == "\\" and i + 1 < len(text):
+                parts[-1] += "|" if text[i + 1] == "|" else text[i:i + 2]
+                i += 2
+            elif text[i] == "|":
+                parts.append("")
+                i += 1
+            else:
+                parts[-1] += text[i]
+                i += 1
+        return [unescape(p) for p in parts]
+
+    poke = None
+    # Leading blanks are indentation; trailing ones are part of the step.
     for step in os.environ.get("DOOR_SCRIPT", "").splitlines():
-        step = step.strip()
-        if not step:
+        step = step.lstrip()
+        if not step.strip():
             continue
-        what = step[2:].encode().decode("unicode_escape").encode("latin-1")
         if step.startswith("<"):
-            door.wait_for(lambda: what in door.data or what in door.plain(),
-                          repr(what))
+            what = door.expect_any(alternatives(step[2:]), poke)
+            poke = None
             print(f"ok - door sent {what!r}")
             # Later steps look only at what comes after this.
-            door.data = door.data[door.data.find(what) + len(what):] \
-                if what in door.data else b""
+            door.drop_through(what)
         elif step.startswith(">"):
-            door.send(what)
+            door.send(unescape(step[2:]))
+        elif step.startswith("*"):
+            secs, _, text = step[2:].partition(" ")
+            try:
+                poke = (float(secs), unescape(text))
+            except ValueError:
+                fail(f"bad DOOR_SCRIPT step (want \"* SECONDS TEXT\"): {step!r}")
+            if poke[0] <= 0 or not poke[1]:
+                fail(f"bad DOOR_SCRIPT step (want \"* SECONDS TEXT\"): {step!r}")
         else:
             fail(f"bad DOOR_SCRIPT step: {step!r}")
+    if poke:
+        fail("DOOR_SCRIPT: \"*\" step with no \"<\" step after it")
     if os.environ.get("DOOR_HANGUP") == "silent":
         # The BBS dies: heartbeats stop, the socket stays open. Only
         # WWIVFOSS -H can notice; wait for the door to exit.
